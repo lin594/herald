@@ -47,6 +47,29 @@ The adapter is fail-safe: server errors never block the agent. Long-task complet
 | Linux desktop | ❌ | ✅ |
 | Web browser | ❌ | ✅ |
 
+## Codex Bark Monitor (this fork)
+
+Everything above, plus a durable monitor for **hours-long agent tasks**: it
+tracks each session through a state machine and pushes only the state changes
+that matter — needs-input, blocked, failed, completed, once-per-episode
+stall/resume edges, and adaptive "still running" heartbeats (15/30 min,
+≤3/hour). A 12-hour laptop sleep never becomes a "stalled 12 hours" alarm.
+
+- Runs entirely local: containerized (Docker/OrbStack), loopback-only API,
+  SQLite on a named volume, secrets redacted before Bark.
+- A thin macOS Host Bridge (LaunchAgent) supplies real process/transcript/sleep
+  facts; workspaces are watched strictly read-only (git is never mutated).
+- Agents report cooperatively with one call:
+  `{"agent":"emit","raw":{"type":"waiting","message":"…"}}` → `./cbm emit waiting "…"`
+  — see [docs/agent-integration.md](docs/agent-integration.md).
+
+Quickstart: fill `.env` (`BARK_ENDPOINT`, `AGENT_NOTIFY_TOKENS`) →
+`./cbm up` → `./cbm install-host` (then trust hooks once in the Codex TUI) →
+`./cbm test`. Ops docs: [architecture](docs/architecture.md) ·
+[policy table](docs/notification-policy.md) ·
+[troubleshooting](docs/troubleshooting.md) ·
+[implementation summary](IMPLEMENTATION_SUMMARY.md).
+
 ## Documentation
 
 Human manual:
