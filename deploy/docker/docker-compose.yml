@@ -50,11 +50,12 @@ services:
       # Codex rollout transcripts (activity observation channel):
       #   CBM_HOST_CODEX_SESSIONS_DIR=~/.codex/sessions  CBM_TRANSCRIPT_DIR=/host/.codex/sessions
       - "${CBM_HOST_CODEX_SESSIONS_DIR:-./unused-mount}:/host/.codex/sessions:ro"
-      # Workspace mounts belong in docker-compose.override.yml (auto-loaded),
-      # one explicit `:ro` bind per watched repository, e.g.
+      # Workspace mounts belong in docker-compose.override.yml (merged automatically
+      # by the ./cbm wrapper), one explicit `:ro` bind per watched repository, e.g.
       #   volumes:
       #     agent-notify:
       #       - ~/workspace/lin594/my-repo:/work/my-repo:ro
+      # See docker-compose.override.example.yml for a full copy-paste template.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

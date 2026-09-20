@@ -1,0 +1,19 @@
+# Copy to deploy/docker/docker-compose.override.yml (the ./cbm wrapper merges
+# it automatically) and adapt. That file is machine-local; keep it out of git.
+#
+# Rules:
+#   - one explicit bind per watched repository, ALWAYS :ro
+#   - never mount ~ or /Users wholesale
+#   - the container paths here must match the `path` fields in CBM_WORKSPACES
+#
+# Example:
+#   services:
+#     agent-notify:
+#       environment:
+#         CBM_TRANSCRIPT_DIR: /host/.codex/sessions
+#         CBM_WORKSPACES: >-
+#           [{"name":"codex-bark-monitor","path":"/work/codex-bark-monitor",
+#             "project":"CodexBarkMonitor","artifacts":["*.pdf","*.mp3"]}]
+#       volumes:
+#         - ~/.codex/sessions:/host/.codex/sessions:ro
+#         - /Users/YOU/workspace/lin594/codex-bark-monitor:/work/codex-bark-monitor:ro

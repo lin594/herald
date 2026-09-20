@@ -5,7 +5,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-COMPOSE_ARGS=(-f deploy/docker/docker-compose.yml --env-file .env)
+# `-f` disables compose's automatic override merge, so load it explicitly.
+COMPOSE_ARGS=(--env-file .env)
+if [ -f deploy/docker/docker-compose.override.yml ]; then
+  COMPOSE_ARGS=(-f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.override.yml "${COMPOSE_ARGS[@]}")
+else
+  COMPOSE_ARGS=(-f deploy/docker/docker-compose.yml "${COMPOSE_ARGS[@]}")
+fi
 
 case "${1:-}" in
   up)    exec docker compose "${COMPOSE_ARGS[@]}" up -d --build ;;

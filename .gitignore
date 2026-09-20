@@ -8,3 +8,6 @@ docs/superpowers/
 .idea
 .pnpm-store
 .superpowers
+
+# machine-local stack config (mounts, local endpoints)
+deploy/docker/docker-compose.override.yml
