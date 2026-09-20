@@ -139,10 +139,14 @@ export function evaluateSessionTick(
     const due = firstDue
       ? sinceStart >= interval
       : sinceBeat >= interval;
-    // Only notify when something changed since the last heartbeat.
+    // Only notify when something changed since the last heartbeat. `>=`
+    // because activity on this very tick sets lastActivityMs = nowMs: a
+    // session with a running process always has fresh content to report,
+    // while a frozen clock (QUIET, no activity) stays exactly equal and is
+    // skipped.
     const changedSinceBeat =
       firstDue ||
-      session.lastActivityMs > (session.lastHeartbeatMs ?? 0);
+      session.lastActivityMs >= (session.lastHeartbeatMs ?? 0);
     if (due && changedSinceBeat) {
       result.notifications.push({
         kind: "heartbeat",
