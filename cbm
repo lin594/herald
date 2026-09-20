@@ -11,5 +11,7 @@ case "${1:-}" in
   up)    exec docker compose "${COMPOSE_ARGS[@]}" up -d --build ;;
   down)  exec docker compose "${COMPOSE_ARGS[@]}" down ;;
   logs)  exec docker compose "${COMPOSE_ARGS[@]}" logs -f agent-notify ;;
+  install-host)   shift; exec node host/install-host.mjs "$@" ;;
+  uninstall-host) shift; exec node host/uninstall-host.mjs "$@" ;;
   *)     exec docker compose "${COMPOSE_ARGS[@]}" exec -T agent-notify node dist/cli/index.js "$@" ;;
 esac

@@ -135,7 +135,7 @@ async function doctor(): Promise<void> {
   await access(dirname(config.logPath));
   console.log(`OK log directory writable: ${dirname(config.logPath)}`);
 
-  const healthUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}/health`;
+  const healthUrl = `${serverBase(config)}/health`;
   const health = await fetch(healthUrl).catch(() => null);
   if (!health?.ok) {
     console.log(`FAIL server health unavailable: ${healthUrl}`);
@@ -143,6 +143,14 @@ async function doctor(): Promise<void> {
     return;
   }
   console.log("OK server health reachable");
+
+  const statusRes = await fetch(`${serverBase(config)}/status`).catch(() => null);
+  if (statusRes?.ok) {
+    const status = (await statusRes.json()) as { hosts?: unknown[] };
+    if (Array.isArray(status.hosts) && status.hosts.length === 0) {
+      console.log("WARN no host bridge heartbeat yet — run ./cbm install-host on the Mac");
+    }
+  }
 }
 
 async function main(): Promise<void> {

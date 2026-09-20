@@ -153,27 +153,37 @@ export function matchArtifacts(paths: string[], patterns: string[]): string[] {
   return res;
 }
 
-/** Codex rollout files live in <transcriptDir>/YYYY-MM-DD/rollout-*-<uuid>.jsonl */
+/** Codex rollout files live in <transcriptDir>/YYYY/MM/DD/rollout-*-<uuid>.jsonl */
 export async function scanTranscriptDir(
   transcriptDir: string,
 ): Promise<Map<string, { mtimeMs: number; size: number }>> {
   const out = new Map<string, { mtimeMs: number; size: number }>();
-  let days: string[] = [];
-  try {
-    days = (await fs.readdir(transcriptDir)).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name));
-  } catch {
-    return out;
+  const readDirs = async (dir: string): Promise<string[]> => {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    } catch {
+      return [];
+    }
+  };
+  const dayPaths: string[] = [];
+  for (const year of (await readDirs(transcriptDir)).slice(-2)) {
+    for (const month of (await readDirs(join(transcriptDir, year))).slice(-2)) {
+      for (const day of (await readDirs(join(transcriptDir, year, month))).slice(-3)) {
+        dayPaths.push(join(transcriptDir, year, month, day));
+      }
+    }
   }
-  days.sort();
-  for (const day of days.slice(-3)) {
+  dayPaths.sort();
+  for (const day of dayPaths.slice(-3)) {
     let files: string[] = [];
     try {
-      files = await fs.readdir(join(transcriptDir, day));
+      files = await fs.readdir(day);
     } catch {
       continue;
     }
     for (const file of files.filter((name) => name.endsWith(".jsonl"))) {
-      const full = join(transcriptDir, day, file);
+      const full = join(day, file);
       try {
         const stat = await fs.stat(full);
         const uuid = basename(file, ".jsonl").match(
