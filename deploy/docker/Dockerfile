@@ -14,9 +14,11 @@ COPY tsconfig.json tsup.config.ts ./
 COPY src ./src
 RUN pnpm build
 
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+# git: read-only workspace observation (status/diff). curl kept small; node fetch is used otherwise.
+RUN apk add --no-cache git
 ARG NPM_REGISTRY=
 ENV npm_config_registry=${NPM_REGISTRY}
 RUN if [ -n "$NPM_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_REGISTRY"; fi \

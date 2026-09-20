@@ -14,11 +14,19 @@ interface PinnedCwd {
   startedAtMs: number;
 }
 
+export interface TurnStateStore {
+  get(key: string): { startedAtMs: number } | undefined;
+  set(key: string, state: { startedAtMs: number }): void;
+  delete(key: string): void;
+}
+
 export interface CodexSessionPolicyOptions {
   completionMinSeconds: number;
   ttlMs?: number;
   maxSessions?: number;
   nowMs?: () => number;
+  /** Optional durable backing for turn-start state across restarts. */
+  persist?: TurnStateStore;
 }
 
 export type CodexSessionPolicyDecision =
@@ -58,6 +66,7 @@ export class CodexSessionPolicy {
   private readonly ttlMs: number;
   private readonly maxSessions: number;
   private readonly nowMs: () => number;
+  private readonly persist: TurnStateStore | undefined;
   private readonly sessions = new Map<string, SessionState>();
   private readonly cwdBySession = new Map<string, PinnedCwd>();
 
@@ -66,6 +75,30 @@ export class CodexSessionPolicy {
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
     this.maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
     this.nowMs = options.nowMs ?? Date.now;
+    this.persist = options.persist;
+  }
+
+  private getTurn(key: string): SessionState | undefined {
+    const cached = this.sessions.get(key);
+    if (cached) return cached;
+    const stored = this.persist?.get(key);
+    if (!stored) return undefined;
+    if (this.nowMs() - stored.startedAtMs > this.ttlMs) {
+      this.persist?.delete(key);
+      return undefined;
+    }
+    this.sessions.set(key, stored);
+    return stored;
+  }
+
+  private setTurn(key: string, state: SessionState): void {
+    this.sessions.set(key, state);
+    this.persist?.set(key, state);
+  }
+
+  private deleteTurn(key: string): void {
+    this.sessions.delete(key);
+    this.persist?.delete(key);
   }
 
   apply(
@@ -84,7 +117,7 @@ export class CodexSessionPolicy {
       if (!id) {
         return { action: "suppress", reason: "missing_session", sourceEvent };
       }
-      this.sessions.set(this.key(tokenName, id), { startedAtMs: this.nowMs() });
+      this.setTurn(this.key(tokenName, id), { startedAtMs: this.nowMs() });
       this.enforceMaxSessions();
       return {
         action: "suppress",
@@ -99,8 +132,8 @@ export class CodexSessionPolicy {
         return { action: "suppress", reason: "missing_session", sourceEvent };
       }
       const key = this.key(tokenName, id);
-      const session = this.sessions.get(key);
-      this.sessions.delete(key);
+      const session = this.getTurn(key);
+      this.deleteTurn(key);
 
       if (this.completionMinSeconds <= 0) {
         return {

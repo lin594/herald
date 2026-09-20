@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Codex Bark Monitor wrapper: one entry point for the containerized stack.
+# All docker compose calls run from the repo root with the repo .env, so
+# interpolation (BARK_ENDPOINT, tokens, CBM_*) resolves consistently.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+COMPOSE_ARGS=(-f deploy/docker/docker-compose.yml --env-file .env)
+
+case "${1:-}" in
+  up)    exec docker compose "${COMPOSE_ARGS[@]}" up -d --build ;;
+  down)  exec docker compose "${COMPOSE_ARGS[@]}" down ;;
+  logs)  exec docker compose "${COMPOSE_ARGS[@]}" logs -f agent-notify ;;
+  *)     exec docker compose "${COMPOSE_ARGS[@]}" exec -T agent-notify node dist/cli/index.js "$@" ;;
+esac

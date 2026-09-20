@@ -8,9 +8,11 @@ export class BarkProvider implements NotificationProvider {
   constructor(
     private readonly endpoint: string,
     private readonly fetchImpl: FetchLike = fetch,
+    private readonly timeoutMs = 5000,
+    private readonly retryBackoffMs: number[] = [1000, 2000],
   ) {}
 
-  async send(input: NotificationPayload): Promise<NotificationResult> {
+  private async sendOnce(input: NotificationPayload): Promise<NotificationResult> {
     try {
       const response = await this.fetchImpl(this.endpoint, {
         method: "POST",
@@ -22,8 +24,10 @@ export class BarkProvider implements NotificationProvider {
           sound: input.sound,
           url: input.url,
           icon: input.icon,
-          level: input.urgency === "time_sensitive" ? "timeSensitive" : "active",
+          level:
+            input.level ?? (input.urgency === "time_sensitive" ? "timeSensitive" : "active"),
         }),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
 
       if (!response.ok) {
@@ -41,5 +45,21 @@ export class BarkProvider implements NotificationProvider {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /** Bounded-backoff retry; a provider failure must never crash the server. */
+  async send(input: NotificationPayload): Promise<NotificationResult> {
+    let last: NotificationResult = { ok: false, error: "not attempted" };
+    const attempts = [0, ...this.retryBackoffMs];
+    for (const delayMs of attempts) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs).unref?.());
+      }
+      last = await this.sendOnce(input);
+      if (last.ok) return last;
+      // HTTP-level rejection from Bark itself: retrying won't help a bad key.
+      if (last.status !== undefined) return last;
+    }
+    return last;
   }
 }

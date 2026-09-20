@@ -8,6 +8,7 @@ import { formatIncomingEvent } from "../formatters/index.js";
 import { JsonlLogger } from "../logging/jsonl.js";
 import type { NotificationProvider } from "../providers/types.js";
 import { authenticate } from "./auth.js";
+import type { MonitorHub } from "../monitor/hub.js";
 import {
   ClaudeCodeSessionPolicy,
   type ClaudeCodeSessionPolicyDecision,
@@ -39,6 +40,7 @@ export interface CreateAppOptions {
   opencodeSessionPolicy?: OpenCodeSessionPolicy;
   cooldownSeconds: number;
   cooldownPolicy?: CooldownPolicy;
+  monitor?: MonitorHub;
 }
 
 function trace(stage: string, fields: Record<string, unknown>): void {
@@ -241,6 +243,17 @@ export function createApp(options: CreateAppOptions): Hono {
       type: getRawType(incoming.raw),
     });
 
+    if (options.monitor) {
+      const early = await options.monitor.handleIncoming(
+        incoming,
+        auth.tokenName!,
+        Date.now(),
+      );
+      if (early) {
+        return c.json(early.body, early.status as 200);
+      }
+    }
+
     const policyDecision = claudeCodeSessionPolicy.apply(
       incoming,
       auth.tokenName!,
@@ -390,6 +403,8 @@ export function createApp(options: CreateAppOptions): Hono {
 
     return c.json({ ok: true, eventId });
   });
+
+  options.monitor?.registerRoutes(app);
 
   return app;
 }
