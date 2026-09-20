@@ -1,10 +1,15 @@
+name: codex-bark-monitor
 services:
   agent-notify:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
+      args:
+        # Optional npm registry mirror for flaky networks, e.g. https://registry.npmmirror.com
+        NPM_REGISTRY: "${NPM_REGISTRY:-}"
     ports:
-      - "8787:8787"
+      # Loopback-only: the API must not be reachable from the LAN.
+      - "127.0.0.1:8787:8787"
     environment:
       AGENT_NOTIFY_HOST: "0.0.0.0"
       AGENT_NOTIFY_PORT: "8787"

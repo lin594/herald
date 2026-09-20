@@ -1,7 +1,12 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN corepack enable
+# Optional registry mirror (e.g. https://registry.npmmirror.com) for networks
+# where registry.npmjs.org is flaky. Pass via build args; empty keeps defaults.
+ARG NPM_REGISTRY=
+RUN if [ -n "$NPM_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_REGISTRY" npm_config_registry="$NPM_REGISTRY"; fi \
+ && corepack enable
 COPY package.json pnpm-lock.yaml ./
+ENV npm_config_registry=${NPM_REGISTRY}
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
@@ -12,7 +17,10 @@ RUN pnpm build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN corepack enable
+ARG NPM_REGISTRY=
+ENV npm_config_registry=${NPM_REGISTRY}
+RUN if [ -n "$NPM_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_REGISTRY"; fi \
+ && corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
 COPY --from=build /app/dist ./dist
