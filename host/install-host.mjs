@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Install the Host Bridge + Codex hook adapter + LaunchAgent on macOS.
 // User-level only: no sudo, no root LaunchAgents, backups before every edit.
-// Idempotent: re-running only adds what is missing.
+// Idempotent: re-running only adds what is missing and re-points our own hooks
+// at this checkout, so moving the repo needs no manual config edits.
 import {
   appendFileSync,
   copyFileSync,
@@ -133,26 +134,21 @@ function readHooksDoc(path) {
   return doc;
 }
 
-function writeHooksDoc(path, hooksDoc, events) {
+function writeHooksDoc(path, hooksDoc, events, command) {
   mkdirSync(dirname(path), { recursive: true });
   if (existsSync(path)) console.log(`backup -> ${backup(path)}`);
   writeFileSync(path, JSON.stringify(hooksDoc, null, 2) + "\n", "utf8");
-  console.log(`updated ${path} (added herald adapter to ${events.join("/")})`);
+  console.log(`updated ${path}\n  ${events.join("/")} -> ${command}`);
 }
 
 const codexEvents = ["UserPromptSubmit", "PermissionRequest", "Stop"];
+const codexCommand = `node ${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}`;
 const codexPath = join(homedir(), ".codex", "hooks.json");
 const codexHooks = readHooksDoc(codexPath);
-if (
-  ensureHooks(
-    codexHooks,
-    codexEvents,
-    `node ${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}`,
-  )
-) {
-  writeHooksDoc(codexPath, codexHooks, codexEvents);
+if (ensureHooks(codexHooks, codexEvents, codexCommand)) {
+  writeHooksDoc(codexPath, codexHooks, codexEvents, codexCommand);
 } else {
-  console.log(`SKIP hooks: adapter already registered in ${codexPath}`);
+  console.log(`SKIP hooks: already up to date in ${codexPath}`);
 }
 
 // Qoder's Stop hook is blocking, so cap the adapter's wall-clock budget.
@@ -164,18 +160,12 @@ const qoderEvents = [
   "StopFailure",
 ];
 const qoderPath = join(homedir(), ".qoder", "settings.json");
+const qoderCommand = `node ${join(REPO, "examples", "qoder", "qoder-agent-notify.mjs")}`;
 const qoderSettings = readHooksDoc(qoderPath);
-if (
-  ensureHooks(
-    qoderSettings,
-    qoderEvents,
-    `node ${join(REPO, "examples", "qoder", "qoder-agent-notify.mjs")}`,
-    { timeout: 5 },
-  )
-) {
-  writeHooksDoc(qoderPath, qoderSettings, qoderEvents);
+if (ensureHooks(qoderSettings, qoderEvents, qoderCommand, { timeout: 5 })) {
+  writeHooksDoc(qoderPath, qoderSettings, qoderEvents, qoderCommand);
 } else {
-  console.log(`SKIP hooks: adapter already registered in ${qoderPath}`);
+  console.log(`SKIP hooks: already up to date in ${qoderPath}`);
 }
 
 // ── 3. LaunchAgent ─────────────────────────────────────────────────────────

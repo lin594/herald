@@ -35,17 +35,28 @@ export function parseHooksDoc(text) {
   };
 }
 
-/** Register `command` for each event. Idempotent; true when it added something. */
+/**
+ * Make every event call exactly `command`, adding what is missing and
+ * rewriting marker-carrying hooks that drifted — the checkout was moved or
+ * renamed. Deduplicating on `marker` alone would keep pointing at the old path
+ * forever, and the hook would fail silently on every event. Foreign hooks and
+ * all sibling keys are untouched. True when anything was added or rewritten.
+ */
 export function ensureHooks(doc, events, command, entryExtra = {}, marker = HOOK_MARKER) {
   if (!isRecord(doc.hooks)) doc.hooks = {};
   let changed = false;
   for (const event of events) {
     const list = Array.isArray(doc.hooks[event]) ? doc.hooks[event] : [];
-    const already = list.some((entry) =>
-      (entry?.hooks ?? []).some((h) => (h?.command ?? "").includes(marker)),
+    const ours = list.flatMap(
+      (entry) => (entry?.hooks ?? []).filter((h) => (h?.command ?? "").includes(marker)),
     );
-    if (!already) {
+    if (ours.length === 0) {
       list.push({ hooks: [{ type: "command", command, ...entryExtra }] });
+      changed = true;
+    }
+    for (const hook of ours) {
+      if (hook.command === command) continue;
+      hook.command = command;
       changed = true;
     }
     doc.hooks[event] = list;

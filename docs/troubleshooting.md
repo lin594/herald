@@ -18,8 +18,10 @@ whether a Host Bridge has ever checked in. Then the container logs:
 - **One-time trust**: open `codex` in a TUI, run `/hooks`, trust them. Until
   trusted, Codex skips all hooks (by design, verified on 0.153.4).
 - `~/.codex/hooks.json` should contain the adapter command under
-  `Stop`/`UserPromptSubmit`/`PermissionRequest`; re-run `./herald install-host`
-  (idempotent — it merges, never clobbers, and backs up unexpected shapes).
+  `Stop`/`UserPromptSubmit`/`PermissionRequest`; re-run `./herald install-host`.
+  It merges and never clobbers foreign hooks, backs up unexpected shapes, and
+  rewrites its own entries when the checkout moved — after a rename or a second
+  clone, that re-run is what clears a dead path.
 - Adapter errors are fail-open: they never block Codex, so check
   `~/.config/agent-notify/logs/` and `AGENT_NOTIFY_DEBUG`.
 - Legacy `notify = [...]` in `~/.codex/config.toml` must be a TOP-LEVEL key

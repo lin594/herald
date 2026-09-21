@@ -57,7 +57,32 @@ describe("hooks-merge", () => {
     expect(commands(doc, "Stop")).toEqual([QODER_CMD]);
   });
 
-  it("treats any command carrying the marker as already installed", () => {
+  it("re-points its own stale entry at the current checkout", () => {
+    const { doc } = parseHooksDoc(
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            { matcher: "gpt", hooks: [{ type: "command", command: "node /keep-me.mjs" }] },
+            { hooks: [{ type: "command", command: "node /old-name/agent-notify.mjs" }] },
+          ],
+          Notification: [{ hooks: [{ type: "command", command: "node /old-name/agent-notify.mjs" }] }],
+        },
+      }),
+    );
+
+    expect(ensureHooks(doc, ["Stop", "UserPromptSubmit"], QODER_CMD, { timeout: 5 })).toBe(true);
+    expect(entries(doc, "Stop")).toEqual([
+      { matcher: "gpt", hooks: [{ type: "command", command: "node /keep-me.mjs" }] },
+      { hooks: [{ type: "command", command: QODER_CMD }] },
+    ]);
+    expect(entries(doc, "UserPromptSubmit")).toEqual([
+      { hooks: [{ type: "command", command: QODER_CMD, timeout: 5 }] },
+    ]);
+    // events outside the requested set are left as they are
+    expect(commands(doc, "Notification")).toEqual(["node /old-name/agent-notify.mjs"]);
+  });
+
+  it("is a no-op when the registered command already matches", () => {
     const { doc } = parseHooksDoc(
       JSON.stringify({
         hooks: {
@@ -65,7 +90,7 @@ describe("hooks-merge", () => {
         },
       }),
     );
-    expect(ensureHooks(doc, ["Stop"], QODER_CMD)).toBe(false);
+    expect(ensureHooks(doc, ["Stop"], "node /elsewhere/agent-notify.mjs")).toBe(false);
     expect(commands(doc, "Stop")).toEqual(["node /elsewhere/agent-notify.mjs"]);
   });
 
