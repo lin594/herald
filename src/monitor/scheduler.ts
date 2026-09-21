@@ -9,7 +9,10 @@ import {
   observeWorkspace,
   scanTranscriptDir,
   scanQoderProjects,
+  transcriptTurnEvidence,
   type GitSummary,
+  type TranscriptStat,
+  type TurnEvidence,
 } from "./observers.js";
 import type { MonitorNotifier } from "./notifier.js";
 import { agentLabel, evaluateSessionTick } from "./statemachine.js";
@@ -21,6 +24,8 @@ interface ObservationFact {
   processCount: number;
   sleepGapSeconds?: number;
 }
+
+type TranscriptFacts = TranscriptStat & { grew: boolean };
 
 export class MonitorScheduler {
   private timer: NodeJS.Timeout | null = null;
@@ -34,7 +39,11 @@ export class MonitorScheduler {
       git: GitSummary | null;
     }
   >();
-  private transcriptCache = new Map<string, { mtimeMs: number; size: number }>();
+  private transcriptCache = new Map<string, TranscriptStat>();
+  private readonly turnEvidenceCache = new Map<
+    string,
+    { version: string; evidence: TurnEvidence | null }
+  >();
 
   constructor(
     private readonly store: MonitorStore,
@@ -97,6 +106,18 @@ export class MonitorScheduler {
         nowMs - observation.atMs < Math.max(this.config.quietSeconds, 120) * 1000;
       const tf = session.sessionId ? transcriptFacts.get(session.sessionId) : undefined;
       const transcriptActive = tf?.grew ?? false;
+      // Silence proves nothing, so ask the transcript what the last turn did.
+      // "idle" retires the session quietly instead of reporting a stall.
+      // Without a transcript at all (a cooperative `emit` agent) fall back to
+      // the hook's own turn accounting; an unreadable one yields null and the
+      // clock decides, exactly as before.
+      let turnInFlight: boolean | null;
+      if (session.sessionId && tf) {
+        const evidence = await this.turnEvidence(session.sessionId, tf);
+        turnInFlight = evidence === null ? null : evidence === "in_flight";
+      } else {
+        turnInFlight = session.turnStartedMs !== null ? true : null;
+      }
 
       const result = evaluateSessionTick(
         {
@@ -104,6 +125,7 @@ export class MonitorScheduler {
           hostAvailable,
           processActive,
           transcriptActive,
+          turnInFlight,
         },
         this.config,
         nowMs,
@@ -201,9 +223,9 @@ export class MonitorScheduler {
     }
   }
 
-  private async collectTranscriptFacts(): Promise<Map<string, { grew: boolean }>> {
-    const out = new Map<string, { grew: boolean }>();
-    const fresh = new Map<string, { mtimeMs: number; size: number }>();
+  private async collectTranscriptFacts(): Promise<Map<string, TranscriptFacts>> {
+    const out = new Map<string, TranscriptFacts>();
+    const fresh = new Map<string, TranscriptStat>();
     if (this.config.transcriptDir) {
       for (const [uuid, stat] of await scanTranscriptDir(this.config.transcriptDir)) {
         fresh.set(uuid, stat);
@@ -216,12 +238,37 @@ export class MonitorScheduler {
     }
     for (const [uuid, stat] of fresh) {
       const previous = this.transcriptCache.get(uuid);
-      if (previous && (stat.size > previous.size || stat.mtimeMs > previous.mtimeMs)) {
-        out.set(uuid, { grew: true });
-      }
+      out.set(uuid, {
+        ...stat,
+        grew: Boolean(
+          previous && (stat.size > previous.size || stat.mtimeMs > previous.mtimeMs),
+        ),
+      });
     }
     this.transcriptCache = fresh;
+    // A transcript that left the scan window can never be read again: drop its
+    // memo so the cache tracks live sessions rather than growing forever.
+    for (const sessionId of this.turnEvidenceCache.keys()) {
+      if (!fresh.has(sessionId)) this.turnEvidenceCache.delete(sessionId);
+    }
     return out;
+  }
+
+  /**
+   * Tail classification for one transcript, memoised per session by file
+   * version. Ticks run every few seconds against files that are usually
+   * unchanged, and reading the whole transcript would be absurd.
+   */
+  private async turnEvidence(
+    sessionId: string,
+    stat: TranscriptStat,
+  ): Promise<TurnEvidence | null> {
+    const version = `${stat.size}:${Math.round(stat.mtimeMs)}`;
+    const cached = this.turnEvidenceCache.get(sessionId);
+    if (cached && cached.version === version) return cached.evidence;
+    const evidence = await transcriptTurnEvidence(stat.path);
+    this.turnEvidenceCache.set(sessionId, { version, evidence });
+    return evidence;
   }
 
   private async collectWorkspaceFacts(nowMs: number): Promise<void> {

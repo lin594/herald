@@ -81,6 +81,70 @@ describe("evaluateSessionTick", () => {
     expect(stall?.body).toContain("No observable activity");
   });
 
+  it("retires a finished session silently instead of reporting a stall", () => {
+    // The transcript's last turn ended cleanly, so the silence means the task is
+    // over — the user already heard about that from Stop, not a stall.
+    const result = evaluateSessionTick(
+      {
+        session: session({ status: "QUIET", lastActivityMs: T0 }),
+        ...quiet,
+        turnInFlight: false,
+      },
+      config,
+      T0 + 1501_000,
+    );
+    expect(result.updates.status).toBe("UNKNOWN");
+    expect(result.notifications.filter((n) => n.kind === "possible_stall")).toHaveLength(0);
+  });
+
+  it("still stalls when the last turn never came back", () => {
+    const result = evaluateSessionTick(
+      {
+        session: session({ status: "QUIET", lastActivityMs: T0 }),
+        ...quiet,
+        turnInFlight: true,
+      },
+      config,
+      T0 + 1501_000,
+    );
+    expect(result.notifications.find((n) => n.kind === "possible_stall")).toBeDefined();
+  });
+
+  it("no transcript evidence leaves the clock in charge", () => {
+    // null = transcript unreadable, undefined = no transcript at all (a
+    // cooperative `emit` agent): both keep the pre-existing behaviour.
+    for (const turnInFlight of [null, undefined]) {
+      const result = evaluateSessionTick(
+        {
+          session: session({ status: "QUIET", lastActivityMs: T0 }),
+          ...quiet,
+          turnInFlight,
+        },
+        config,
+        T0 + 1501_000,
+      );
+      expect(result.notifications.find((n) => n.kind === "possible_stall")).toBeDefined();
+    }
+  });
+
+  it("a finished session gets no 'still running' heartbeat", () => {
+    const run = (turnInFlight?: boolean) =>
+      evaluateSessionTick(
+        {
+          session: session({ status: "ACTIVE", lastHeartbeatMs: null }),
+          ...quiet,
+          transcriptActive: true,
+          turnInFlight,
+        },
+        config,
+        T0 + 901_000,
+      );
+    expect(run()?.notifications.find((n) => n.kind === "heartbeat")).toBeDefined();
+    expect(
+      run(false).notifications.filter((n) => n.kind === "heartbeat"),
+    ).toHaveLength(0);
+  });
+
   it("no stall while the host is unreachable (sleep is not agent failure)", () => {
     const result = evaluateSessionTick(
       { session: session({ status: "QUIET" }), hostAvailable: false, processActive: false, transcriptActive: false },

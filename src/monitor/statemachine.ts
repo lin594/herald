@@ -14,6 +14,12 @@ export interface TickSessionContext {
   hostAvailable: boolean;
   processActive: boolean; // related agent/child process seen in recent observations
   transcriptActive: boolean; // rollout file grew since last scan
+  /**
+   * What the transcript tail says about the last turn: true = work was in
+   * flight, false = the turn ended cleanly, null/undefined = no evidence (an
+   * unreadable format or a session with no transcript at all).
+   */
+  turnInFlight?: boolean | null;
 }
 
 export interface TickResult {
@@ -177,26 +183,34 @@ export function evaluateSessionTick(
     // growth, no workspace change, and host availability. One notification
     // per episode (deduped downstream by fingerprint).
     result.updates.status = "UNKNOWN";
-    result.notifications.push({
-      kind: "possible_stall",
-      level: "timeSensitive",
-      title: titleFor(session, "possible_stall", config.language),
-      body: [
-        config.language === "zh"
-          ? `已 ${formatDuration(idleMs, "zh")}没有任何可观察动作`
-          : `No observable activity for ${formatElapsed(idleMs)}.`,
-        ...contextLines(session, config.language),
-      ].join("\n"),
-    });
+    // "Stalled" is a claim about work in flight, so it needs evidence that work
+    // *was* in flight. A transcript whose last turn ended cleanly means the
+    // silence is the session being over, not the agent hanging: retire it
+    // without pushing. null (no transcript evidence) keeps the clock-based
+    // notification, so cooperative `emit` agents are unaffected.
+    if (ctx.turnInFlight !== false) {
+      result.notifications.push({
+        kind: "possible_stall",
+        level: "timeSensitive",
+        title: titleFor(session, "possible_stall", config.language),
+        body: [
+          config.language === "zh"
+            ? `已 ${formatDuration(idleMs, "zh")}没有任何可观察动作`
+            : `No observable activity for ${formatElapsed(idleMs)}.`,
+          ...contextLines(session, config.language),
+        ].join("\n"),
+      });
+    }
   }
 
-  // Adaptive heartbeat for working sessions only.
+  // Adaptive heartbeat for working sessions only. A session whose transcript
+  // ends on a finished turn has nothing to report, however long it lingers.
   const working =
     result.updates.status
       ? result.updates.status === "ACTIVE" || result.updates.status === "QUIET"
       : session.status === "STARTED" || session.status === "ACTIVE" || session.status === "QUIET";
 
-  if (working && ctx.hostAvailable) {
+  if (working && ctx.hostAvailable && ctx.turnInFlight !== false) {
     const sinceStart = nowMs - session.startedAtMs;
     const firstDue = session.lastHeartbeatMs == null;
     const interval = firstDue

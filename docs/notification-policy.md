@@ -16,11 +16,31 @@ Tests drive these with injected clocks, never real waits.
 | `emit started/milestone/completed/waiting/blocked/failed` | records message, may move state | `started` · `milestone` · `completed` … | milestone/completed: passive·active per kind | fingerprint (kind+body); identical repeat suppressed; `./herald test`/force bypasses |
 | `emit waiting` / PermissionRequest | → WAITING_USER | "Need Input" / "Permission" | **timeSensitive** | fingerprint; cleared when activity resumes |
 | Idle ≥ `HERALD_QUIET_SECONDS` (10 min) | ACTIVE → QUIET | none | — | — |
-| QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode | timeSensitive | fingerprint; cleared on resume/re-baseline |
+| QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode, and only while a turn is unaccounted for: a transcript whose last record is `end_turn`, or a user interrupt, retires the session **silently** | timeSensitive | fingerprint; cleared on resume/re-baseline |
 | Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **passive** (low priority) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
 | Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | upstream "turn finished" wording — **a turn, not the task** | per upstream | upstream cooldown policy |
-| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed | — | "Running" summary (elapsed, last activity, files, ±lines, stage, artifacts) | passive | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
+| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary (elapsed, last activity, files, ±lines, stage, artifacts) | passive | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
 | `FAILED` event × N identical | stays FAILED | once | active | fingerprint; a resume/activity edge between failures clears it → a genuine second failure notifies again |
+
+## Silence is not evidence
+
+A monitor can only see writes, and a session that stopped being written to looks
+identical whether it finished, was interrupted, or hung. So a stall claim needs
+more than a clock: the last **message** record of the transcript is read (tail
+only, `transcriptTurnEvidence`) and the verdict decides.
+
+- Last record is an assistant `end_turn`, or a user interrupt
+  (`[Request interrupted by user…]`): the turn is closed. The session is retired
+  to `UNKNOWN` quietly — no "Possible Stall", no "Running" heartbeat.
+- Last record is a prompt, a `tool_result`, or an assistant `tool_use`: an
+  answer was owed and never came, which is what a stall looks like. The clock
+  keeps the floor under it.
+- No transcript at all (a cooperative `emit` agent) or a format the reader does
+  not understand: treated as no evidence, so the behaviour is exactly the
+  clock-based one. Missing evidence must never silence a real alert.
+
+The transcript is only ever *read*: the monitor never writes, moves or deletes
+agent session files.
 
 ## Host-level states (orthogonal to session states)
 

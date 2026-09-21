@@ -143,4 +143,52 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
     expect(session.lastActivityMs).toBe(grown);
     expect(sent.filter((p) => p.body.includes("No observable activity"))).toHaveLength(0);
   });
+
+  it("retires a session whose last turn ended cleanly, without a word", async () => {
+    // The regression this guards: a Qoder session that finished (or that the
+    // user interrupted) stops appending, so 25 minutes later the clocks alone
+    // said "possible stall" for work that was never running.
+    const { store, sent, scheduler } = fixture(
+      { qoderDir: writeTranscript("ended", [
+        '{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn"}}',
+        '{"type":"active-leaf"}',
+      ]) },
+      "ended",
+    );
+
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 + 601_000 });
+    await scheduler.run(T0 + 601_000);
+    expect(store.getSession("macbook:ended")?.status).toBe("QUIET");
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 + 1501_000 });
+    await scheduler.run(T0 + 1501_000);
+
+    expect(store.getSession("macbook:ended")?.status).toBe("UNKNOWN");
+    expect(sent).toHaveLength(0); // no stall, and no "still running" heartbeat
+  });
+
+  it("still reports a stall when the last turn never came back", async () => {
+    const { store, sent, scheduler } = fixture(
+      { qoderDir: writeTranscript("hung", [
+        '{"type":"assistant","message":{"role":"assistant","stop_reason":"tool_use"}}',
+        '{"type":"user","message":{"role":"user","content":[{"type":"tool_result"}]}}',
+      ]) },
+      "hung",
+    );
+
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 + 601_000 });
+    await scheduler.run(T0 + 601_000);
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 + 1501_000 });
+    await scheduler.run(T0 + 1501_000);
+
+    expect(store.getSession("macbook:hung")?.status).toBe("UNKNOWN");
+    expect(sent.filter((p) => p.body.includes("No observable activity"))).toHaveLength(1);
+  });
 });
+
+/** Lay out <tmp>/<project-slug>/<sessionId>.jsonl and return the scan root. */
+function writeTranscript(sessionId: string, records: string[]): string {
+  const root = join(tmpdir(), `herald-turn-${sessionId}-${T0}`);
+  mkdirSync(join(root, "-Users-me-work-repo"), { recursive: true });
+  writeFileSync(join(root, "-Users-me-work-repo", `${sessionId}.jsonl`), records.join("\n") + "\n");
+  return root;
+}

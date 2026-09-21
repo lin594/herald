@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
+  classifyTranscriptTail,
   matchArtifacts,
   observeGit,
   observeWorkspace,
   scanQoderProjects,
   scanTranscriptDir,
+  transcriptTurnEvidence,
   walkWorkspace,
 } from "../../src/monitor/observers.js";
 
@@ -122,5 +124,88 @@ describe("workspace observers", () => {
     expect(fresh.get(UUID)?.size).toBeGreaterThan(0);
 
     expect(await scanQoderProjects(join(qoderRoot, "missing"))).toEqual(new Map());
+  });
+});
+
+describe("transcript turn evidence", () => {
+  const record = (type: string, message?: unknown) =>
+    JSON.stringify(message === undefined ? { type } : { type, message });
+
+  it("reads the last message through the bookkeeping records that trail it", () => {
+    const lines = [
+      record("user", { role: "user", content: [{ type: "text", text: "go" }] }),
+      record("assistant", { role: "assistant", stop_reason: "end_turn" }),
+      ...["active-leaf", "last-prompt", "workspace-directories", "runtime-config"].map(
+        (type) => record(type),
+      ),
+    ];
+    expect(classifyTranscriptTail(lines)).toBe("idle");
+  });
+
+  it("treats an unclosed turn as work in flight", () => {
+    expect(
+      classifyTranscriptTail([record("assistant", { role: "assistant", stop_reason: "tool_use" })]),
+    ).toBe("in_flight");
+    expect(
+      classifyTranscriptTail([
+        record("assistant", { role: "assistant", stop_reason: "tool_use" }),
+        record("user", { role: "user", content: [{ type: "tool_result" }] }),
+      ]),
+    ).toBe("in_flight");
+  });
+
+  it("counts a user interrupt as the end of the turn", () => {
+    // Real Qoder tails: the session was stopped by hand, so nothing is coming.
+    for (const marker of ["[Request interrupted by user]", "[Request interrupted by user for tool use]"]) {
+      expect(
+        classifyTranscriptTail([
+          record("user", { role: "user", content: [{ type: "tool_result" }] }),
+          record("user", { role: "user", content: [{ type: "text", text: marker }] }),
+        ]),
+      ).toBe("idle");
+    }
+  });
+
+  it("reports nothing for a format it cannot read", () => {
+    expect(classifyTranscriptTail([])).toBeNull();
+    expect(classifyTranscriptTail(["not json", record("active-leaf")])).toBeNull();
+    // Codex rollout envelope records are not message records.
+    expect(classifyTranscriptTail([JSON.stringify({ type: "response_item" })])).toBeNull();
+  });
+
+  it("classifies only the tail of a real file, and only complete records", async () => {
+    const dir = join(tmpdir(), `herald-tail-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${UUID}.jsonl`);
+    const filler = Array.from(
+      { length: 400 },
+      (_, i) => `${record("user", { role: "user", text: `p${i}` })}\n`,
+    ).join("");
+    writeFileSync(
+      path,
+      filler +
+        record("assistant", { role: "assistant", stop_reason: "end_turn" }) +
+        "\n" +
+        record("active-leaf"), // torn write: no trailing newline yet
+    );
+    expect(await transcriptTurnEvidence(path)).toBe("idle");
+
+    writeFileSync(
+      path,
+      filler + record("assistant", { role: "assistant", stop_reason: "tool_use" }) + "\n",
+    );
+    expect(await transcriptTurnEvidence(path)).toBe("in_flight");
+
+    expect(await transcriptTurnEvidence(join(dir, "missing.jsonl"))).toBeNull();
+  });
+
+  it("scanners keep the path so the tail can be read back", async () => {
+    const qoderRoot = join(tmpdir(), `herald-qoder-path-${Date.now()}`);
+    const project = join(qoderRoot, "-Users-me-repo");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${UUID}.jsonl`), "{}\n");
+    expect((await scanQoderProjects(qoderRoot)).get(UUID)?.path).toBe(
+      join(project, `${UUID}.jsonl`),
+    );
   });
 });

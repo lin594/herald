@@ -153,11 +153,17 @@ export function matchArtifacts(paths: string[], patterns: string[]): string[] {
   return res;
 }
 
+export interface TranscriptStat {
+  mtimeMs: number;
+  size: number;
+  path: string;
+}
+
 /** Codex rollout files live in <transcriptDir>/YYYY/MM/DD/rollout-*-<uuid>.jsonl */
 export async function scanTranscriptDir(
   transcriptDir: string,
-): Promise<Map<string, { mtimeMs: number; size: number }>> {
-  const out = new Map<string, { mtimeMs: number; size: number }>();
+): Promise<Map<string, TranscriptStat>> {
+  const out = new Map<string, TranscriptStat>();
   const readDirs = async (dir: string): Promise<string[]> => {
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -189,7 +195,7 @@ export async function scanTranscriptDir(
         const uuid = basename(file, ".jsonl").match(
           /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/,
         )?.[1];
-        if (uuid) out.set(uuid, { mtimeMs: stat.mtimeMs, size: stat.size });
+        if (uuid) out.set(uuid, { mtimeMs: stat.mtimeMs, size: stat.size, path: full });
       } catch {
         // ignore
       }
@@ -206,8 +212,8 @@ export async function scanTranscriptDir(
  */
 export async function scanQoderProjects(
   qoderDir: string,
-): Promise<Map<string, { mtimeMs: number; size: number }>> {
-  const out = new Map<string, { mtimeMs: number; size: number }>();
+): Promise<Map<string, TranscriptStat>> {
+  const out = new Map<string, TranscriptStat>();
   let projects: string[] = [];
   try {
     const entries = await fs.readdir(qoderDir, { withFileTypes: true });
@@ -224,13 +230,106 @@ export async function scanQoderProjects(
     }
     for (const file of files) {
       if (!file.endsWith(".jsonl")) continue;
+      const full = join(qoderDir, project, file);
       try {
-        const stat = await fs.stat(join(qoderDir, project, file));
-        out.set(basename(file, ".jsonl"), { mtimeMs: stat.mtimeMs, size: stat.size });
+        const stat = await fs.stat(full);
+        out.set(basename(file, ".jsonl"), {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          path: full,
+        });
       } catch {
         // ignore
       }
     }
   }
   return out;
+}
+
+/**
+ * Positive evidence about whether a session still has work in flight, read from
+ * its transcript. Absence of writes proves nothing — a session that ended
+ * cleanly and a session that hung forever both stop appending — so the state
+ * machine needs something stronger than a clock to retire a session quietly.
+ */
+export type TurnEvidence = "in_flight" | "idle";
+
+const TAIL_READ_BYTES = 64 * 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Classify the last *message* record of a transcript, walked from the end.
+ * Bookkeeping records (`active-leaf`, `last-prompt`, `workspace-directories`,
+ * `runtime-config`, `attachment`, ...) are appended after the turn is over and
+ * say nothing about it, so they are skipped, as are unparseable lines. Returns
+ * null when the file holds no message we can read — an unknown format must
+ * never suppress a notification.
+ */
+export function classifyTranscriptTail(lines: string[]): TurnEvidence | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim();
+    if (!line) continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue; // torn or over-long record: not evidence either way
+    }
+    if (!isRecord(record) || !isRecord(record.message)) continue;
+    const message = record.message;
+    if (record.type === "assistant") {
+      return message.stop_reason === "end_turn" ? "idle" : "in_flight";
+    }
+    if (record.type !== "user") continue;
+    // An interrupt marker is the transcript's own word for "the user stopped
+    // this": no turn is coming back. A bare prompt or a tool result means the
+    // answer never arrived, which is exactly what a stall looks like.
+    return wasInterrupted(message) ? "idle" : "in_flight";
+  }
+  return null;
+}
+
+function wasInterrupted(message: Record<string, unknown>): boolean {
+  const parts = Array.isArray(message.content) ? message.content : [message.content];
+  return parts.some(
+    (part) =>
+      typeof part === "string"
+        ? INTERRUPTED_MARKER.test(part.trim())
+        : isRecord(part) &&
+          part.type === "text" &&
+          INTERRUPTED_MARKER.test(String(part.text ?? "").trim()),
+  );
+}
+
+const INTERRUPTED_MARKER = /^\[Request interrupted by user/;
+
+/** Tail-only read: transcripts reach hundreds of MB and only their end matters. */
+export async function transcriptTurnEvidence(
+  path: string,
+  maxBytes = TAIL_READ_BYTES,
+): Promise<TurnEvidence | null> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    handle = await fs.open(path, "r");
+    const { size } = await handle.stat();
+    if (size === 0) return null;
+    const start = Math.max(0, size - maxBytes);
+    const length = size - start;
+    const buffer = Buffer.allocUnsafe(length);
+    await handle.read(buffer, 0, length, start);
+    const lines = buffer.toString("utf8").split("\n");
+    if (start > 0) lines.shift(); // window began mid-line; that fragment is unreadable
+    return classifyTranscriptTail(lines);
+  } catch {
+    return null;
+  } finally {
+    try {
+      await handle?.close();
+    } catch {
+      // already closed
+    }
+  }
 }
