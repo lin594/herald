@@ -37,8 +37,8 @@ Codex · herald · 疑似卡住
 ```
 
 标题固定是 `Agent · 项目 · 状态`，正文先回答「我要做什么」，再补一行上下文：跑了多久、
-改了多少。项目名来自 `HERALD_PROJECT_MAP`；拿不到名字时显示 `会话 1a2b3c4d`，
-绝不把一串 hash 甩在锁屏上。英文推送见 [README.md](README.md)。
+改了多少。项目名取自工作区声明的 `project`，或 `HERALD_PROJECT_MAP`；拿不到名字时显示
+`会话 1a2b3c4d`，绝不把一串 hash 甩在锁屏上。英文推送见 [README.md](README.md)。
 
 - **两条正交轴**：会话状态与宿主机可达性分开判。笔记本睡眠不会被算成 agent 失败，
   睡 12 小时也不会变成「停滞 12 小时」。

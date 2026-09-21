@@ -61,7 +61,7 @@ or ntfy (everything else).
 
 - Receives raw hook events from OpenCode, Claude Code, and Codex.
 - Formats short, action-focused notifications server-side (permission requests, prompts, errors, long-task completion).
-- Titles every notification `Agent · Project · State`, naming the project from `HERALD_PROJECT_MAP` when the directory itself is unhelpful.
+- Titles every notification `Agent · Project · State`, naming the project from the watched workspace's `project` field or `HERALD_PROJECT_MAP` when the directory itself is unhelpful.
 - Attaches one context line to each push — elapsed time, files changed, insertions/deletions — so you can triage from the lock screen.
 - Keeps short tasks quiet and only pings when a session has run long enough to matter.
 - Tames rapid notify-handle-continue loops with a session-scoped cooldown for permission/question alerts.

@@ -17,7 +17,7 @@ Tests drive these with injected clocks, never real waits.
 | `emit waiting` / PermissionRequest | → WAITING_USER | "Need Input" / "Permission" | **timeSensitive** | fingerprint; cleared when activity resumes |
 | Idle ≥ `HERALD_QUIET_SECONDS` (10 min) | ACTIVE → QUIET | none | — | — |
 | QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode | timeSensitive | fingerprint; cleared on resume/re-baseline |
-| Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **passive** (low priority) | once per episode |
+| Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **passive** (low priority) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
 | Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | upstream "turn finished" wording — **a turn, not the task** | per upstream | upstream cooldown policy |
 | Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed | — | "Running" summary (elapsed, last activity, files, ±lines, stage, artifacts) | passive | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
 | `FAILED` event × N identical | stays FAILED | once | active | fingerprint; a resume/activity edge between failures clears it → a genuine second failure notifies again |
@@ -36,9 +36,10 @@ one push. Text lives in `src/core/notification-text.ts` — nothing formats a
 title or a duration inline.
 
 - **Title**: `Agent · Project · State` (`Codex · herald · Need Input`). The agent
-  segment comes from `agentLabel`, the project from `HERALD_PROJECT_MAP` or the
-  cwd (a nested checkout resolves to the deepest configured root), and the state
-  from `stateLabel`. An opaque directory or session id is rendered
+  segment comes from `agentLabel`, the project from `HERALD_WORKSPACES[].project`
+  or `HERALD_PROJECT_MAP` (explicit names win) and otherwise the cwd — a nested
+  checkout resolves to the deepest configured root — and the state from
+  `stateLabel`. An opaque directory or session id is rendered
   `session 1a2b3c4d` / `会话 1a2b3c4d`, never as a bare hash.
 - **Body**: the action first, then one quantitative context line —
   `running 1h 12m · 44 files changed +1208 −15` /
