@@ -17,6 +17,7 @@ type UnknownRecord = Record<string, unknown>;
 export interface FormatterOptions {
   language?: NotificationLanguage;
   cwd?: string;
+  projectMap?: Record<string, string>;
 }
 
 const zhActionLabels: Record<string, string> = {
@@ -144,7 +145,13 @@ export function formatOpenCodeEvent(
   const sourceEvent = requireEventType(raw);
   const properties = getProperties(raw);
   const cwd = options?.cwd ?? raw.cwd;
-  const title = (value: string) => prefixTitleWithProject(value, cwd);
+  const title = (value: string) =>
+    prefixTitleWithProject(value, cwd, {
+      agent: "OpenCode",
+      projectMap: options?.projectMap,
+      language,
+      sessionId: getString(raw.sessionID) ?? getString(properties.sessionID),
+    });
 
   if (sourceEvent === "permission.v2.asked") {
     const action = getString(properties.action) ?? "permission";

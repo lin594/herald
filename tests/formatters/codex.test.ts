@@ -23,7 +23,7 @@ describe("Codex formatter", () => {
       sourceEvent: "PermissionRequest",
       sessionId: "codex_session_1",
       notification: {
-        title: "Approve permission",
+        title: "Codex · codex_session_1 · Approve permission",
         body: "Codex wants to run the test suite",
         urgency: "time_sensitive",
         group: "Codex",
@@ -74,7 +74,7 @@ describe("Codex formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("需要批准");
+    expect(formatted.notification.title).toBe("Codex · codex_session_zh · 需要批准");
     expect(formatted.notification.body).toBe("请回到 Codex 查看");
   });
 
@@ -94,7 +94,7 @@ describe("Codex formatter", () => {
       sourceEvent: "Stop",
       sessionId: "codex_session_4",
       notification: {
-        title: "Ready to review",
+        title: "Codex · codex_session_4 · Ready to review",
         body: "Implemented the Codex adapter and tests.",
         urgency: "time_sensitive",
         group: "Codex",
@@ -159,7 +159,7 @@ describe("Codex formatter", () => {
 
     expect(formatted.kind).toBe("completed");
     expect(formatted.notification.group).toBe("Codex");
-    expect(formatted.notification.title).toBe("待审阅");
+    expect(formatted.notification.title).toBe("Codex · codex_session_8 · 待审阅");
   });
 
   it("prefixes Codex notification titles with the project name from cwd", () => {
@@ -176,10 +176,10 @@ describe("Codex formatter", () => {
       },
     });
 
-    expect(formatted.notification.title).toBe("agent-notify Approve permission");
+    expect(formatted.notification.title).toBe("Codex · agent-notify · Approve permission");
   });
 
-  it("keeps Codex notification titles unchanged when cwd is missing", () => {
+  it("falls back to a labelled session id when cwd is missing", () => {
     const formatted = formatCodexEvent({
       agent: "codex",
       raw: {
@@ -188,7 +188,7 @@ describe("Codex formatter", () => {
       },
     });
 
-    expect(formatted.notification.title).toBe("Ready to review");
+    expect(formatted.notification.title).toBe("Codex · codex_project_2 · Ready to review");
   });
 
   it("uses options.cwd for the project prefix when provided, overriding raw.cwd", () => {

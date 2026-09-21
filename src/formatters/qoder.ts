@@ -16,6 +16,7 @@ type UnknownRecord = Record<string, unknown>;
 export interface FormatterOptions {
   language?: NotificationLanguage;
   cwd?: string;
+  projectMap?: Record<string, string>;
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -63,7 +64,13 @@ export function formatQoderEvent(
   const raw = requireRawRecord(event.raw);
   const sourceEvent = requireHookEvent(raw);
   const cwd = options?.cwd ?? raw.cwd;
-  const title = (value: string) => prefixTitleWithProject(value, cwd);
+  const title = (value: string) =>
+    prefixTitleWithProject(value, cwd, {
+      agent: "Qoder",
+      projectMap: options?.projectMap,
+      language,
+      sessionId: sessionId(raw),
+    });
 
   // Qoder ships the Claude-Code-style hook family: PermissionRequest fires
   // before the approval prompt, Notification covers auth/elicitation prompts.

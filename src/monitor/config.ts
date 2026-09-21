@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { NotificationLanguage } from "../core/language.js";
 
 export interface WorkspaceConfig {
   name: string;
@@ -31,6 +32,7 @@ export interface MonitorConfig {
   gitScanIntervalSeconds: number;
   scanMaxFiles: number;
   maxBodyChars: number;
+  language: NotificationLanguage; // reuses the upstream AGENT_NOTIFY_LANGUAGE
   transcriptDir: string | null; // container path, read-only mount of ~/.codex/sessions
   qoderDir: string | null; // container path, read-only mount of ~/.qoder/projects
   workspaces: WorkspaceConfig[];
@@ -71,6 +73,7 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     gitScanIntervalSeconds: Number(env.HERALD_GIT_SCAN_INTERVAL_SECONDS ?? 60),
     scanMaxFiles: Number(env.HERALD_SCAN_MAX_FILES ?? 5000),
     maxBodyChars: Number(env.HERALD_MAX_BODY_CHARS ?? 1200),
+    language: env.AGENT_NOTIFY_LANGUAGE === "zh" ? "zh" : "en",
     transcriptDir: env.HERALD_TRANSCRIPT_DIR?.trim() || null,
     qoderDir: env.HERALD_QODER_DIR?.trim() || null,
     workspaces: parseWorkspaces(env.HERALD_WORKSPACES),

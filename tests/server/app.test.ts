@@ -6,12 +6,22 @@ import { CodexSessionPolicy } from "../../src/server/codex-session-policy.js";
 import { CooldownPolicy } from "../../src/server/cooldown-policy.js";
 import { OpenCodeSessionPolicy } from "../../src/server/opencode-session-policy.js";
 import type { NotificationProvider } from "../../src/providers/types.js";
+import type { MonitorHub } from "../../src/monitor/hub.js";
 
 function provider(): NotificationProvider {
   return {
     name: "mock",
     send: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
   };
+}
+
+/** Only the surface app.ts touches; a real hub would need a database. */
+function monitorStub(overrides: Partial<MonitorHub>): MonitorHub {
+  return {
+    registerRoutes: () => {},
+    handleIncoming: async () => null,
+    ...overrides,
+  } as unknown as MonitorHub;
 }
 
 function appOptions(mockProvider = provider()) {
@@ -85,7 +95,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Approve bash",
+      title: "OpenCode · session_1 · Approve bash",
       body: "pnpm test",
       urgency: "time_sensitive",
       group: "OpenCode",
@@ -117,7 +127,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Approve permission",
+      title: "Claude Code · claude_server_1 · Approve permission",
       body: "Claude needs permission to use Bash",
       urgency: "time_sensitive",
       group: "Claude Code",
@@ -173,7 +183,7 @@ describe("server app", () => {
 
     expect(res.status).toBe(200);
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "批准运行命令",
+      title: "OpenCode · session_1 · 批准运行命令",
       body: "pnpm test",
       urgency: "time_sensitive",
       group: "OpenCode",
@@ -468,7 +478,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(policy.sessionCount()).toBe(0);
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Failed",
+      title: "Claude Code · claude_failed · Failed",
       body: "API Error: quota exceeded",
       urgency: "time_sensitive",
       group: "Claude Code",
@@ -537,7 +547,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Approve permission",
+      title: "Codex · codex_permission · Approve permission",
       body: "Codex wants to run pnpm test",
       urgency: "time_sensitive",
       group: "Codex",
@@ -575,7 +585,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Approve permission",
+      title: "Codex · codex_permission · Approve permission",
       body: "Codex wants to run pnpm test",
       urgency: "time_sensitive",
       group: "Codex",
@@ -682,7 +692,7 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
     expect(mockProvider.send).toHaveBeenCalledWith({
-      title: "Ready to review",
+      title: "Codex · codex_long · Ready to review",
       body: "Codex finished the requested change.",
       urgency: "time_sensitive",
       group: "Codex",
@@ -1066,5 +1076,80 @@ describe("server app", () => {
     expect(calls).toHaveLength(2);
     expect(sent?.title).toContain("openclaw");
     expect(sent?.title).not.toContain("src");
+  });
+
+  it("uses the monitor project map for notification titles", async () => {
+    const mockProvider = provider();
+    const app = createApp({
+      ...appOptions(mockProvider),
+      projectMap: { "/work/repo-a": "Repo A" },
+    });
+
+    await app.request("/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret",
+      },
+      body: JSON.stringify({
+        agent: "codex",
+        raw: {
+          hook_event_name: "PermissionRequest",
+          session_id: "sess_map",
+          cwd: "/work/repo-a/packages/inner",
+          tool_name: "Bash",
+          tool_input: { command: "pnpm test" },
+        },
+      }),
+    });
+
+    const sent = vi.mocked(mockProvider.send).mock.calls[0]?.[0];
+    // The mapped name wins over the drifted directory segment.
+    expect(sent?.title).toBe("Codex · Repo A · Approve permission");
+  });
+
+  it("appends the monitor digest to the pushed body", async () => {
+    const mockProvider = provider();
+    const digestFor = vi.fn(() => "running 1h 2m · 4 files changed +9 −1");
+    const app = createApp({
+      ...appOptions(mockProvider),
+      monitor: monitorStub({ digestFor }),
+    });
+
+    const res = await app.request("/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret",
+      },
+      body: JSON.stringify(permissionEnvelope),
+    });
+
+    expect(res.status).toBe(200);
+    expect(digestFor).toHaveBeenCalledWith("macbook", "session_1");
+    expect(vi.mocked(mockProvider.send).mock.calls[0]?.[0].body).toBe(
+      "pnpm test\nrunning 1h 2m · 4 files changed +9 −1",
+    );
+  });
+
+  it("redacts a secret that arrives inside the digest", async () => {
+    const mockProvider = provider();
+    const app = createApp({
+      ...appOptions(mockProvider),
+      monitor: monitorStub({ digestFor: () => "token=super-secret-value" }),
+    });
+
+    await app.request("/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret",
+      },
+      body: JSON.stringify(permissionEnvelope),
+    });
+
+    const sent = vi.mocked(mockProvider.send).mock.calls[0]?.[0];
+    expect(sent?.body).not.toContain("super-secret-value");
+    expect(sent?.body).toContain("[REDACTED]");
   });
 });

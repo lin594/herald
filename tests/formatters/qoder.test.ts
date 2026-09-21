@@ -26,7 +26,7 @@ describe("Qoder formatter", () => {
       sourceEvent: "PermissionRequest",
       sessionId: SESSION,
       notification: {
-        title: "Approve permission",
+        title: "Qoder · session 62211ad1 · Approve permission",
         body: "Remove dependencies before reinstall",
         urgency: "time_sensitive",
         group: "Qoder",
@@ -96,7 +96,7 @@ describe("Qoder formatter", () => {
     });
 
     expect(formatted.kind).toBe("completed");
-    expect(formatted.notification.title).toBe("Ready to review");
+    expect(formatted.notification.title).toBe("Qoder · session 62211ad1 · Ready to review");
     expect(formatted.notification.body).toBe(
       "Implemented the parser and all 286 tests pass.",
     );
@@ -140,7 +140,7 @@ describe("Qoder formatter", () => {
     );
 
     expect(formatted.notification.title).toBe(
-      "herald 需要批准",
+      "Qoder · herald · 需要批准",
     );
   });
 

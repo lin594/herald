@@ -43,6 +43,8 @@ export interface CreateAppOptions {
   cooldownPolicy?: CooldownPolicy;
   /** Cap for the free-text body sent to the push provider. */
   maxBodyChars?: number;
+  /** workspace/host path -> project name, used for readable notification titles. */
+  projectMap?: Record<string, string>;
   monitor?: MonitorHub;
 }
 
@@ -316,6 +318,7 @@ export function createApp(options: CreateAppOptions): Hono {
     try {
       formatted = formatIncomingEvent(incoming, {
         language: options.language,
+        projectMap: options.projectMap,
         cwd:
           matchingDecision.action === "continue"
             ? matchingDecision.cwd
@@ -363,10 +366,15 @@ export function createApp(options: CreateAppOptions): Hono {
     }
 
     const eventId = `evt_${randomUUID()}`;
+    // Monitor context (elapsed, diffstat) turns a bare prompt into an
+    // actionable summary; it is numeric text from the store, and safeBody
+    // still redacts before anything leaves the process.
+    const digest = options.monitor?.digestFor(auth.tokenName!, formatted.sessionId);
+    const body = [formatted.notification.body, digest].filter(Boolean).join("\n");
     const result = await options.provider.send({
       ...formatted.notification,
       title: safeTitle(formatted.notification.title),
-      body: safeBody(formatted.notification.body, maxBodyChars),
+      body: safeBody(body, maxBodyChars),
     });
 
     if (result.ok) {

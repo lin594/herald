@@ -1,3 +1,11 @@
+import {
+  composeTitle,
+  digestLine,
+  formatDuration,
+  readableProject,
+  stateLabel,
+} from "../core/notification-text.js";
+import type { NotificationLanguage } from "../core/language.js";
 import type { MonitorConfig } from "./config.js";
 import type { DecidedNotification, SessionRecord } from "./types.js";
 
@@ -19,39 +27,76 @@ export interface TickResult {
 }
 
 export function formatElapsed(ms: number): string {
-  const totalMinutes = Math.floor(ms / 60000);
-  if (totalMinutes < 60) return `${totalMinutes} min`;
-  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+  return formatDuration(ms, "en");
 }
 
-function heartbeatBody(session: SessionRecord, nowMs: number): string {
+/** Quantitative context shared by every monitor-originated push body. */
+function contextLines(
+  session: SessionRecord,
+  language: NotificationLanguage,
+): string[] {
   const lines: string[] = [];
-  lines.push(`Running ${formatElapsed(nowMs - session.startedAtMs)}`);
-  lines.push(`Last activity ${formatElapsed(nowMs - session.lastActivityMs)} ago`);
-  if (session.changedFiles > 0) {
-    lines.push(`${session.changedFiles} files changed`);
+  const digest = digestLine(
+    {
+      changedFiles: session.changedFiles,
+      insertions: session.insertions,
+      deletions: session.deletions,
+    },
+    language,
+  );
+  if (digest) lines.push(digest);
+  if (session.lastStage) {
+    lines.push(
+      `${language === "zh" ? "阶段" : "Stage"}: ${session.lastStage}`,
+    );
   }
-  if (session.insertions > 0 || session.deletions > 0) {
-    lines.push(`+${session.insertions} / -${session.deletions}`);
+  if (session.lastArtifacts) {
+    lines.push(
+      `${language === "zh" ? "产物" : "Artifacts"}: ${session.lastArtifacts}`,
+    );
   }
-  if (session.lastStage) lines.push(`Stage: ${session.lastStage}`);
-  if (session.lastArtifacts) lines.push(`Artifacts: ${session.lastArtifacts}`);
-  return lines.join("\n");
+  return lines;
+}
+
+function heartbeatBody(
+  session: SessionRecord,
+  nowMs: number,
+  language: NotificationLanguage,
+): string {
+  const head =
+    language === "zh"
+      ? `已跑 ${formatDuration(nowMs - session.startedAtMs, language)} · 最近动作在${formatDuration(nowMs - session.lastActivityMs, language)}前`
+      : `Running ${formatElapsed(nowMs - session.startedAtMs)}\nLast activity ${formatElapsed(nowMs - session.lastActivityMs)} ago`;
+  return [head, ...contextLines(session, language)].join("\n");
 }
 
 /** Display name used for notification titles and Bark group filtering. */
 export function agentLabel(agentType: string): string {
-  return agentType === "codex"
-    ? "Codex"
-    : agentType === "qoder"
-      ? "Qoder"
-      : agentType;
+  switch (agentType) {
+    case "codex":
+      return "Codex";
+    case "qoder":
+      return "Qoder";
+    case "claude-code":
+      return "Claude Code";
+    case "opencode":
+      return "OpenCode";
+    default:
+      return agentType;
+  }
 }
 
-function titleFor(session: SessionRecord, label: string): string {
-  return `[${agentLabel(session.agentType)}] ${
-    session.project ?? session.sessionId.slice(0, 8)
-  } · ${label}`;
+function titleFor(
+  session: SessionRecord,
+  kind: string,
+  language: NotificationLanguage,
+): string {
+  return composeTitle([
+    agentLabel(session.agentType),
+    readableProject(session.project, language) ??
+      readableProject(session.sessionId, language),
+    stateLabel(kind, language),
+  ]);
 }
 
 /**
@@ -103,8 +148,13 @@ export function evaluateSessionTick(
       result.notifications.push({
         kind: "resumed",
         level: "passive",
-        title: titleFor(session, "Resumed"),
-        body: `Activity resumed after ${formatElapsed(idleMs)}.`,
+        title: titleFor(session, "resumed", config.language),
+        body: [
+          config.language === "zh"
+            ? `恢复活动（已静默 ${formatDuration(idleMs, "zh")}）`
+            : `Activity resumed after ${formatElapsed(idleMs)}.`,
+          ...contextLines(session, config.language),
+        ].join("\n"),
       });
       result.clearedDedupKinds.push("possible_stall", "resumed");
     } else {
@@ -126,8 +176,13 @@ export function evaluateSessionTick(
     result.notifications.push({
       kind: "possible_stall",
       level: "timeSensitive",
-      title: titleFor(session, "Possible Stall"),
-      body: `No observable activity for ${formatElapsed(idleMs)}.`,
+      title: titleFor(session, "possible_stall", config.language),
+      body: [
+        config.language === "zh"
+          ? `已 ${formatDuration(idleMs, "zh")}没有任何可观察动作`
+          : `No observable activity for ${formatElapsed(idleMs)}.`,
+        ...contextLines(session, config.language),
+      ].join("\n"),
     });
   }
 
@@ -161,8 +216,8 @@ export function evaluateSessionTick(
       result.notifications.push({
         kind: "heartbeat",
         level: "passive",
-        title: titleFor(session, "Running"),
-        body: heartbeatBody(session, nowMs),
+        title: titleFor(session, "heartbeat", config.language),
+        body: heartbeatBody(session, nowMs, config.language),
       });
       result.updates.lastHeartbeatMs = nowMs;
     }

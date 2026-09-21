@@ -30,6 +30,7 @@ const config: MonitorConfig = {
   qoderDir: null,
   workspaces: [],
   projectMap: {},
+  language: "en",
 };
 
 function fixture(overrides: Partial<MonitorConfig> = {}, sessionId = "s1") {

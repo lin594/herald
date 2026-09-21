@@ -28,9 +28,11 @@ const config: MonitorConfig = {
   qoderDir: null,
   workspaces: [],
   projectMap: { "/work/repo-a": "Repo A" },
+  language: "en",
 };
 
-function fixture() {
+function fixture(language: "en" | "zh" = "en") {
+  const cfg: MonitorConfig = { ...config, language };
   const store = new MonitorStore(openDatabase(":memory:"));
   const sent: NotificationPayload[] = [];
   const provider = {
@@ -40,17 +42,17 @@ function fixture() {
       return { ok: true, status: 200 };
     }),
   };
-  const notifier = new MonitorNotifier(store, provider, config);
-  const scheduler = new MonitorScheduler(store, notifier, config);
+  const notifier = new MonitorNotifier(store, provider, cfg);
+  const scheduler = new MonitorScheduler(store, notifier, cfg);
   const hub = new MonitorHub({
     store,
     notifier,
     scheduler,
-    config,
+    config: cfg,
     tokens: [{ name: "macbook", value: "t0ken" }],
     completionMinSeconds: 120,
   });
-  return { store, sent, hub };
+  return { store, sent, hub, config: cfg };
 }
 
 describe("MonitorHub cooperative emit", () => {
@@ -177,5 +179,87 @@ describe("MonitorHub hook state ingestion", () => {
     } as unknown as IncomingAgentEvent;
     // no session_id -> recorded as no-op, request pipeline continues
     expect(await hub.handleIncoming(broken, "macbook", T0)).toBeNull();
+  });
+});
+
+describe("MonitorHub notification text", () => {
+  async function emitWaiting(overrides: Record<string, unknown> = {}) {
+    const { sent, hub } = fixture();
+    await hub.handleIncoming(
+      {
+        agent: "emit",
+        raw: {
+          type: "waiting",
+          message: "Need a decision on the DB schema",
+          agent_type: "codex",
+          session_id: "abc123def",
+          project: "Repo A",
+          ...overrides,
+        },
+      } as IncomingAgentEvent,
+      "macbook",
+      T0,
+    );
+    return sent;
+  }
+
+  it("titles emits Agent · Project · State", async () => {
+    const sent = await emitWaiting();
+    expect(sent[0].title).toBe("Codex · Repo A · Need Input");
+  });
+
+  it("labels a nameless emit session instead of showing its id", async () => {
+    const sent = await emitWaiting({
+      project: "",
+      session_id: "b537d940d7d3c66f5e1ad0ca",
+    });
+    expect(sent[0].title).toBe("Codex · session b537d940 · Need Input");
+  });
+
+  it("localizes emit titles", async () => {
+    const { sent, hub } = fixture("zh");
+    await hub.handleIncoming(
+      {
+        agent: "emit",
+        raw: {
+          type: "waiting",
+          message: "需要你决定数据库方案",
+          agent_type: "qoder",
+          session_id: "q1",
+          project: "Repo A",
+        },
+      } as IncomingAgentEvent,
+      "macbook",
+      T0,
+    );
+    expect(sent[0].title).toBe("Qoder · Repo A · 等你输入");
+    expect(sent[0].body).toBe("需要你决定数据库方案");
+  });
+
+  it("only builds a digest once it says something", async () => {
+    const { store, hub } = fixture();
+    expect(hub.digestFor("macbook", undefined)).toBeUndefined();
+    expect(hub.digestFor("macbook", "missing")).toBeUndefined();
+
+    await hub.handleIncoming(
+      {
+        agent: "codex",
+        raw: { hook_event_name: "UserPromptSubmit", session_id: "sess-d", cwd: "/work/repo-a" },
+      } as unknown as IncomingAgentEvent,
+      "macbook",
+      T0,
+    );
+    // nothing observed yet: no elapsed clock, no diff
+    expect(hub.digestFor("macbook", "sess-d", T0 + 1000)).toBeUndefined();
+    expect(hub.digestFor("macbook", "sess-d", T0 + 3_720_000)).toBe("running 1h 2m");
+
+    store.updateSession("macbook:sess-d", {
+      changedFiles: 4,
+      insertions: 9,
+      deletions: 1,
+    });
+    expect(hub.digestFor("macbook", "sess-d", T0 + 3_720_000)).toBe(
+      "running 1h 2m · 4 files changed +9 −1",
+    );
   });
 });

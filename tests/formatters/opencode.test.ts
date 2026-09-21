@@ -24,14 +24,14 @@ describe("OpenCode formatter", () => {
       sourceEvent: "permission.v2.asked",
       sessionId: "session_1",
       notification: {
-        title: "Approve bash",
+        title: "OpenCode · session_1 · Approve bash",
         body: "pnpm test -- --runInBand",
         urgency: "time_sensitive",
         group: "OpenCode",
         icon: "https://opencode.ai/apple-touch-icon.png",
       },
     });
-    expect(formatted.notification.title).not.toContain("OpenCode");
+    expect(formatted.notification.title).not.toContain("permission.v2.asked");
     expect(formatted.notification.body).not.toContain("\n");
   });
 
@@ -57,7 +57,7 @@ describe("OpenCode formatter", () => {
       sourceEvent: "permission.asked",
       sessionId: "session_2",
       notification: {
-        title: "Approve edit",
+        title: "OpenCode · session_2 · Approve edit",
         body: "src/server/app.ts",
         urgency: "time_sensitive",
         group: "OpenCode",
@@ -87,7 +87,7 @@ describe("OpenCode formatter", () => {
       sourceEvent: "session.error",
       sessionId: "session_3",
       notification: {
-        title: "Failed",
+        title: "OpenCode · session_3 · Failed",
         body: "Provider returned HTTP 500 while streaming the response",
         urgency: "time_sensitive",
         group: "OpenCode",
@@ -148,7 +148,7 @@ describe("OpenCode formatter", () => {
       sourceEvent: "question.asked",
       sessionId: "session_question_1",
       notification: {
-        title: "Question",
+        title: "OpenCode · session_question_1 · Question",
         body: "「测试下长任务」具体想测试哪个场景？",
         urgency: "time_sensitive",
         group: "OpenCode",
@@ -174,7 +174,7 @@ describe("OpenCode formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("批准删除文件");
+    expect(formatted.notification.title).toBe("OpenCode · session_zh_1 · 批准删除文件");
     expect(formatted.notification.body).toBe("src/old-file.ts");
   });
 
@@ -195,7 +195,7 @@ describe("OpenCode formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("批准编辑文件");
+    expect(formatted.notification.title).toBe("OpenCode · session_zh_2 · 批准编辑文件");
     expect(formatted.notification.body).toBe("请求权限");
   });
 
@@ -214,7 +214,7 @@ describe("OpenCode formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("失败");
+    expect(formatted.notification.title).toBe("OpenCode · session_zh_3 · 失败");
     expect(formatted.notification.body).toBe("会话错误");
   });
 
@@ -235,7 +235,7 @@ describe("OpenCode formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("需要回答");
+    expect(formatted.notification.title).toBe("OpenCode · session_zh_question · 需要回答");
     expect(formatted.notification.body).toBe("请选择一个回答");
   });
 
@@ -292,7 +292,7 @@ describe("OpenCode formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("批准网页访问");
+    expect(formatted.notification.title).toBe("OpenCode · session_6 · 批准网页访问");
   });
 
   it("does not send Claude Code events to the OpenCode formatter", () => {
@@ -328,10 +328,10 @@ describe("OpenCode formatter", () => {
       },
     });
 
-    expect(formatted.notification.title).toBe("agent-notify Question");
+    expect(formatted.notification.title).toBe("OpenCode · agent-notify · Question");
   });
 
-  it("keeps OpenCode notification titles unchanged when cwd is unusable", () => {
+  it("falls back to a labelled session id when cwd is unusable", () => {
     const formatted = formatOpenCodeEvent({
       agent: "opencode",
       raw: {
@@ -344,7 +344,9 @@ describe("OpenCode formatter", () => {
       },
     });
 
-    expect(formatted.notification.title).toBe("Ready to review");
+    expect(formatted.notification.title).toBe(
+      "OpenCode · session_project_2 · Ready to review",
+    );
   });
 
   it("uses options.cwd for the project prefix when provided, overriding raw.cwd", () => {

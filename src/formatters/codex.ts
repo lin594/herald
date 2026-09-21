@@ -18,6 +18,7 @@ type UnknownRecord = Record<string, unknown>;
 export interface FormatterOptions {
   language?: NotificationLanguage;
   cwd?: string;
+  projectMap?: Record<string, string>;
 }
 
 function languageFromOptions(options?: FormatterOptions): NotificationLanguage {
@@ -105,7 +106,13 @@ export function formatCodexEvent(
   const raw = requireRawRecord(event.raw);
   const sourceEvent = requireHookEvent(raw);
   const cwd = options?.cwd ?? raw.cwd;
-  const title = (value: string) => prefixTitleWithProject(value, cwd);
+  const title = (value: string) =>
+    prefixTitleWithProject(value, cwd, {
+      agent: "Codex",
+      projectMap: options?.projectMap,
+      language,
+      sessionId: sessionId(raw),
+    });
 
   if (sourceEvent === "PermissionRequest") {
     return {

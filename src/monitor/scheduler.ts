@@ -1,3 +1,7 @@
+import {
+  composeTitle,
+  stateLabel,
+} from "../core/notification-text.js";
 import type { MonitorConfig } from "./config.js";
 import {
   matchArtifacts,
@@ -156,10 +160,18 @@ export class MonitorScheduler {
             {
               kind: "host_lost",
               level: "active",
-              title: `[Monitor] ${host.hostname} · Host Signal Lost`,
-              body: "Host Bridge unreachable (sleep or network). Agent state unknown until it returns.",
+              title: composeTitle([
+                "Herald",
+                host.hostname,
+                stateLabel("host_lost", this.config.language),
+              ]),
+              body:
+                this.config.language === "zh"
+                  ? "Host Bridge 心跳中断（睡眠或断网），期间 agent 状态未知"
+                  : "Host Bridge unreachable (sleep or network). Agent state unknown until it returns.",
             },
             nowMs,
+            { group: "Herald" },
           );
         }
       } else if (

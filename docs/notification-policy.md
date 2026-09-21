@@ -29,6 +29,26 @@ Tests drive these with injected clocks, never real waits.
 | Host Bridge heartbeat gap > `HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS` (180 s) while a session is working | HOST_AVAILABLE → HOST_UNREACHABLE | "Host Signal Lost" (sleep or network) — **not** an agent failure | once (`host_lost` fingerprint) |
 | Heartbeats resume | HOST_UNREACHABLE → HOST_AVAILABLE | none. Recovery re-baselines every working session's clocks to now and status→QUIET: a 12 h sleep can never surface as "stalled 12 h", and no notifications replay | clears stall/resume fingerprints |
 
+## How a push reads
+
+Both pipelines produce the same shape, so a glance is enough once you have seen
+one push. Text lives in `src/core/notification-text.ts` — nothing formats a
+title or a duration inline.
+
+- **Title**: `Agent · Project · State` (`Codex · herald · Need Input`). The agent
+  segment comes from `agentLabel`, the project from `HERALD_PROJECT_MAP` or the
+  cwd (a nested checkout resolves to the deepest configured root), and the state
+  from `stateLabel`. An opaque directory or session id is rendered
+  `session 1a2b3c4d` / `会话 1a2b3c4d`, never as a bare hash.
+- **Body**: the action first, then one quantitative context line —
+  `running 1h 12m · 44 files changed +1208 −15` /
+  `已跑 1 小时 12 分 · 44 文件改动 +1208 −15` — plus `Stage:` and `Artifacts:`
+  when the monitor knows them.
+- **Nothing to add, nothing said**: clocks under a minute and zero-change
+  diffstats are dropped, so a prompt two seconds old does not push `running 0 min`.
+- **Language**: `AGENT_NOTIFY_LANGUAGE` (`en` default) drives state labels,
+  durations and context lines for both pipelines.
+
 ## Content safety (every push, both pipelines)
 
 Monitor-originated pushes go through `MonitorNotifier`; hook-derived
@@ -44,8 +64,8 @@ formatted pushes through `src/server/app.ts`. Both apply the same
 
 Bark `group` is the agent display name — `Codex`, `Qoder`, or the emit
 `agent_type` (`HERALD_EMIT_AGENT`) — so one session's pushes always land in the
-same group. Host-level pushes (`host_lost`) are not agent-scoped and keep the
-default group.
+same group. Host-level pushes (`host_lost`) are not agent-scoped and group under
+`Herald`.
 
 ## Restart safety
 
@@ -53,6 +73,8 @@ Fingerprints, heartbeat counters and session state live in
 `/data/monitor.sqlite3` (named volume). After `docker restart` the monitor
 reconciles from stored timestamps — historical notifications are never replayed.
 
-Implementation: `src/monitor/statemachine.ts` (decisions), `src/monitor/scheduler.ts`
+Implementation: `src/core/notification-text.ts` (shared wording),
+`src/monitor/statemachine.ts` (decisions), `src/monitor/scheduler.ts`
 (tick + host transitions), `src/monitor/notifier.ts` (dedup/limit/redact/send),
-`src/monitor/hub.ts` (event ingestion).
+`src/monitor/hub.ts` (event ingestion, `digestFor`),
+`src/server/app.ts` (formatter path, which appends the monitor digest).

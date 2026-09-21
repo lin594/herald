@@ -18,6 +18,7 @@ type UnknownRecord = Record<string, unknown>;
 export interface FormatterOptions {
   language?: NotificationLanguage;
   cwd?: string;
+  projectMap?: Record<string, string>;
 }
 
 function languageFromOptions(options?: FormatterOptions): NotificationLanguage {
@@ -115,7 +116,13 @@ export function formatClaudeCodeEvent(
   const raw = requireRawRecord(event.raw);
   const sourceEvent = requireHookEvent(raw);
   const cwd = options?.cwd ?? raw.cwd;
-  const title = (value: string) => prefixTitleWithProject(value, cwd);
+  const title = (value: string) =>
+    prefixTitleWithProject(value, cwd, {
+      agent: "Claude Code",
+      projectMap: options?.projectMap,
+      language,
+      sessionId: sessionId(raw),
+    });
 
   if (sourceEvent === "Notification") {
     const notificationType = getString(raw.notification_type);

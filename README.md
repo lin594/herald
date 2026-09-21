@@ -24,10 +24,19 @@ stall that resolved, and a throttled "still alive" heartbeat. Everything else
 stays silent.
 
 ```
-Qoder · proofreader · 等你批准          Monitor · 疑似卡住
-批准删除文件                            已 25 分钟没有任何可观察动作
-git status --porcelain                  已跑 1 小时 12 分 · 44 文件 +1208 −15
+Codex · herald · Need Input
+Run the sessions table migration
+running 1h 12m · 44 files changed +1208 −15
+
+Codex · herald · Possible Stall
+No observable activity for 25 min.
+44 files changed +1208 −15
 ```
+
+Every push reads `Agent · Project · State`, then the shortest body that answers
+"what do I need to do?" and one line of context — how long it has been running
+and what it has changed. `AGENT_NOTIFY_LANGUAGE=zh` renders the same pushes in
+Chinese; an unnamed workspace is shown as `session 1a2b3c4d`, never as a bare hash.
 
 - **Two independent axes.** Session state and host availability are tracked
   separately, so a sleeping laptop is never reported as a failed agent, and a
@@ -52,7 +61,8 @@ or ntfy (everything else).
 
 - Receives raw hook events from OpenCode, Claude Code, and Codex.
 - Formats short, action-focused notifications server-side (permission requests, prompts, errors, long-task completion).
-- Prefixes notification titles with the project name when the agent provides a working directory.
+- Titles every notification `Agent · Project · State`, naming the project from `HERALD_PROJECT_MAP` when the directory itself is unhelpful.
+- Attaches one context line to each push — elapsed time, files changed, insertions/deletions — so you can triage from the lock screen.
 - Keeps short tasks quiet and only pings when a session has run long enough to matter.
 - Tames rapid notify-handle-continue loops with a session-scoped cooldown for permission/question alerts.
 - Provides per-tool `/agent-notify` switches for session, timed, and persistent muting.

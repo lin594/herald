@@ -2,6 +2,13 @@ import { promises as fs } from "node:fs";
 import { basename } from "node:path";
 import type { Hono } from "hono";
 import type { IncomingAgentEvent } from "../core/incoming-event.js";
+import { resolveProjectName } from "../formatters/project-title.js";
+import {
+  composeTitle,
+  digestLine,
+  readableProject,
+  stateLabel,
+} from "../core/notification-text.js";
 import type { NamedToken } from "../config/env.js";
 import type { MonitorConfig } from "./config.js";
 import { MonitorNotifier } from "./notifier.js";
@@ -27,15 +34,6 @@ const EMIT_LEVELS: Record<EmitKind, DecidedNotification["level"]> = {
   blocked: "timeSensitive",
   failed: "timeSensitive",
   completed: "active",
-};
-
-const EMIT_LABELS: Record<EmitKind, string> = {
-  started: "Started",
-  milestone: "Milestone",
-  waiting: "Need Input",
-  blocked: "Blocked",
-  failed: "Failed",
-  completed: "Completed",
 };
 
 const EMIT_STATUS: Record<EmitKind, SessionStatus> = {
@@ -244,11 +242,16 @@ export class MonitorHub {
     this.deps.store.updateSession(key, fields);
     this.deps.store.clearFingerprint(key, EMIT_CLEARS[kind]);
 
-    const label = kind === "waiting" ? "Need Input" : EMIT_LABELS[kind];
+    const label = stateLabel(kind, this.deps.config.language);
     const notification: DecidedNotification = {
       kind,
       level: EMIT_LEVELS[kind],
-      title: `[${agentLabel(agentType)}] ${project ?? sessionId.slice(0, 12)} · ${label}`,
+      title: composeTitle([
+        agentLabel(agentType),
+        readableProject(project, this.deps.config.language) ??
+          readableProject(sessionId, this.deps.config.language),
+        label,
+      ]),
       body: message || label,
     };
     const sent = await this.deps.notifier.notify(key, notification, nowMs, {
@@ -261,9 +264,32 @@ export class MonitorHub {
   }
 
   private projectFor(cwd: string): string {
-    const map = this.deps.config.projectMap;
-    if (map[cwd]) return map[cwd];
+    const mapped = resolveProjectName(cwd, this.deps.config.projectMap);
+    if (mapped) return mapped;
     return basename(cwd.replace(/\/+$/, "")) || "Unknown";
+  }
+
+  /**
+   * One compact line of quantitative context for a session, so a push that
+   * came from the formatter path can still answer "how long, how much".
+   */
+  digestFor(
+    tokenName: string,
+    sessionId: string | undefined,
+    nowMs = Date.now(),
+  ): string | undefined {
+    if (!sessionId) return undefined;
+    const session = this.deps.store.getSession(`${tokenName}:${sessionId}`);
+    if (!session) return undefined;
+    return digestLine(
+      {
+        runningMs: nowMs - session.startedAtMs,
+        changedFiles: session.changedFiles,
+        insertions: session.insertions,
+        deletions: session.deletions,
+      },
+      this.deps.config.language,
+    );
   }
 
   // ── extra routes ─────────────────────────────────────────────────────────

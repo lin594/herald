@@ -30,7 +30,8 @@ kept intact; everything Herald adds sits behind it and is failure-isolated.
 
 | Piece | Where | Responsibility |
 |---|---|---|
-| Upstream pipeline | `src/server`, `src/core`, `src/formatters`, `src/providers` | Receive hook events, format per-agent notifications, cooldown/session policies, Bark/ntfy delivery. Unchanged semantics; Herald touches it at three points: policy persistence, hub early-handling, and the shared content-safety helpers on every provider send. |
+| Upstream pipeline | `src/server`, `src/core`, `src/formatters`, `src/providers` | Receive hook events, format per-agent notifications, cooldown/session policies, Bark/ntfy delivery. Unchanged semantics; Herald touches it at four points: policy persistence, hub early-handling, the notification wording and digest appended to each formatted body, and the shared content-safety helpers on every provider send. |
+| Notification text | `src/core/notification-text.ts` | The wording both pipelines share: `Agent · Project · State` titles, localized state labels and durations, and the digest line (elapsed / idle / diffstat). Context that says nothing — a sub-minute clock, an empty diff — is dropped instead of printed. |
 | MonitorHub | `src/monitor/hub.ts` | Ingests every event into the durable model: hook state, cooperative `emit`, host heartbeats, observations. Never blocks the notify path — failures are logged and swallowed. |
 | MonitorScheduler | `src/monitor/scheduler.ts` | Owns time: 15 s tick, per-session `evaluateSessionTick` (pure), host up/down transitions, wake re-baseline, workspace/transcript sweeps. |
 | State machine | `src/monitor/statemachine.ts` | UNKNOWN/STARTED/ACTIVE/QUIET/WAITING_USER/BLOCKED/FAILED/COMPLETED + HOST_AVAILABLE/HOST_UNREACHABLE (separate axis: host loss is never agent failure). |

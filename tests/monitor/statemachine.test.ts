@@ -23,6 +23,7 @@ const config: MonitorConfig = {
   qoderDir: null,
   workspaces: [],
   projectMap: {},
+  language: "en",
 };
 
 function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -191,5 +192,83 @@ describe("evaluateSessionTick", () => {
   it("formatElapsed renders minutes and hours", () => {
     expect(formatElapsed(5 * 60_000)).toBe("5 min");
     expect(formatElapsed(90 * 60_000)).toBe("1h 30m");
+  });
+});
+
+describe("notification readability", () => {
+  const zh: MonitorConfig = { ...config, language: "zh" };
+
+  function stall(cfg: MonitorConfig, overrides: Partial<SessionRecord> = {}) {
+    const result = evaluateSessionTick(
+      {
+        session: session({ status: "QUIET", lastActivityMs: T0, ...overrides }),
+        ...quiet,
+      },
+      cfg,
+      T0 + 1501_000,
+    );
+    return result.notifications.find((n) => n.kind === "possible_stall");
+  }
+
+  it("titles state changes as Agent · Project · State", () => {
+    expect(stall(config, { agentType: "claude-code" })?.title).toBe(
+      "Claude Code · MyRepo · Possible Stall",
+    );
+    expect(stall(zh)?.title).toBe("Codex · MyRepo · 疑似卡住");
+  });
+
+  it("labels an unnamed session instead of showing a raw id", () => {
+    const opaque = "62211ad1-730a-4de1-ae17-8ed9c4fd19a4";
+    expect(stall(config, { project: null, sessionId: opaque })?.title).toBe(
+      "Codex · session 62211ad1 · Possible Stall",
+    );
+  });
+
+  it("keeps the stall body to one sentence plus context", () => {
+    expect(stall(config)?.body).toBe("No observable activity for 25 min.");
+    expect(stall(zh)?.body).toBe("已 25 分钟没有任何可观察动作");
+  });
+
+  it("appends diffstat, stage and artifacts as context lines", () => {
+    const withContext = stall(config, {
+      changedFiles: 44,
+      insertions: 1208,
+      deletions: 15,
+      lastStage: "running the test suite",
+      lastArtifacts: "dist/cli/index.js",
+    });
+    expect(withContext?.body).toBe(
+      [
+        "No observable activity for 25 min.",
+        "44 files changed +1208 −15",
+        "Stage: running the test suite",
+        "Artifacts: dist/cli/index.js",
+      ].join("\n"),
+    );
+    expect(stall(zh, { changedFiles: 3, insertions: 10, lastStage: "跑测试" })?.body)
+      .toBe(["已 25 分钟没有任何可观察动作", "3 文件改动 +10 −0", "阶段: 跑测试"].join("\n"));
+  });
+
+  it("renders the heartbeat digest without duplicated units", () => {
+    const zhBeat = evaluateSessionTick(
+      {
+        session: session({ lastActivityMs: T0 + 900_000 }),
+        ...quiet,
+      },
+      zh,
+      T0 + 901_000,
+    ).notifications.find((n) => n.kind === "heartbeat");
+    expect(zhBeat?.title).toBe("Codex · MyRepo · 还在跑");
+    expect(zhBeat?.body).toBe("已跑 15 分钟 · 最近动作在不到 1 分钟前");
+
+    const enBeat = evaluateSessionTick(
+      {
+        session: session({ lastActivityMs: T0 + 900_000 }),
+        ...quiet,
+      },
+      config,
+      T0 + 901_000,
+    ).notifications.find((n) => n.kind === "heartbeat");
+    expect(enBeat?.body).toBe("Running 15 min\nLast activity 0 min ago");
   });
 });

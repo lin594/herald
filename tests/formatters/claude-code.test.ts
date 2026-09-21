@@ -20,7 +20,7 @@ describe("Claude Code formatter", () => {
       sourceEvent: "Notification",
       sessionId: "claude_session_1",
       notification: {
-        title: "Approve permission",
+        title: "Claude Code · claude_session_1 · Approve permission",
         body: "Claude needs permission to use Bash",
         urgency: "time_sensitive",
         group: "Claude Code",
@@ -45,7 +45,7 @@ describe("Claude Code formatter", () => {
       sourceEvent: "Notification",
       sessionId: "claude_session_2",
       notification: {
-        title: "Question",
+        title: "Claude Code · claude_session_2 · Question",
         body: "Claude is waiting for your input",
         urgency: "time_sensitive",
         group: "Claude Code",
@@ -90,7 +90,7 @@ describe("Claude Code formatter", () => {
       sourceEvent: "StopFailure",
       sessionId: "claude_session_4",
       notification: {
-        title: "Failed",
+        title: "Claude Code · claude_session_4 · Failed",
         body: "You've hit your session limit; resets 1:10am (Asia/Shanghai)",
         urgency: "time_sensitive",
         group: "Claude Code",
@@ -113,7 +113,7 @@ describe("Claude Code formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("需要批准");
+    expect(formatted.notification.title).toBe("Claude Code · claude_session_zh · 需要批准");
     expect(formatted.notification.body).toBe("需要批准 Bash");
   });
 
@@ -174,7 +174,9 @@ describe("Claude Code formatter", () => {
       },
     });
 
-    expect(formatted.notification.title).toBe("agent-notify Approve permission");
+    expect(formatted.notification.title).toBe(
+      "Claude Code · agent-notify · Approve permission",
+    );
   });
 
   it("prefixes Claude Code Chinese titles with the project name from cwd", () => {
@@ -190,7 +192,7 @@ describe("Claude Code formatter", () => {
       { language: "zh" },
     );
 
-    expect(formatted.notification.title).toBe("agent-notify 待审阅");
+    expect(formatted.notification.title).toBe("Claude Code · agent-notify · 待审阅");
   });
 
   it("uses options.cwd for the project prefix when provided, overriding raw.cwd", () => {
