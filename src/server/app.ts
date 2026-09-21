@@ -6,6 +6,7 @@ import { parseIncomingAgentEvent } from "../core/incoming-event.js";
 import { EventFormatError } from "../core/formatted-event.js";
 import { formatIncomingEvent } from "../formatters/index.js";
 import { JsonlLogger } from "../logging/jsonl.js";
+import { safeBody, safeTitle } from "../monitor/redact.js";
 import type { NotificationProvider } from "../providers/types.js";
 import { authenticate } from "./auth.js";
 import type { MonitorHub } from "../monitor/hub.js";
@@ -40,8 +41,12 @@ export interface CreateAppOptions {
   opencodeSessionPolicy?: OpenCodeSessionPolicy;
   cooldownSeconds: number;
   cooldownPolicy?: CooldownPolicy;
+  /** Cap for the free-text body sent to the push provider. */
+  maxBodyChars?: number;
   monitor?: MonitorHub;
 }
+
+const DEFAULT_MAX_BODY_CHARS = 1200;
 
 function trace(stage: string, fields: Record<string, unknown>): void {
   try {
@@ -76,6 +81,7 @@ export function createApp(options: CreateAppOptions): Hono {
     new OpenCodeSessionPolicy({
       completionMinSeconds: options.opencodeCompletionMinSeconds,
     });
+  const maxBodyChars = options.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS;
   const cooldownPolicy =
     options.cooldownPolicy ??
     new CooldownPolicy({ cooldownSeconds: options.cooldownSeconds });
@@ -120,7 +126,7 @@ export function createApp(options: CreateAppOptions): Hono {
   async function logSuppressedCodexEvent(
     receivedAt: string,
     tokenName: string,
-    incomingAgent: "codex",
+    incomingAgent: "codex" | "qoder",
     decision: Exclude<CodexSessionPolicyDecision, { action: "continue" }>,
   ): Promise<void> {
     trace("suppressed", {
@@ -278,7 +284,7 @@ export function createApp(options: CreateAppOptions): Hono {
       await logSuppressedCodexEvent(
         receivedAt,
         auth.tokenName!,
-        "codex",
+        incoming.agent === "qoder" ? "qoder" : "codex",
         codexPolicyDecision,
       );
       return c.json({ ok: true, notified: false });
@@ -302,7 +308,7 @@ export function createApp(options: CreateAppOptions): Hono {
     const matchingDecision =
       incoming.agent === "claude-code"
         ? policyDecision
-        : incoming.agent === "codex"
+        : incoming.agent === "codex" || incoming.agent === "qoder"
           ? codexPolicyDecision
           : opencodePolicyDecision;
 
@@ -357,7 +363,11 @@ export function createApp(options: CreateAppOptions): Hono {
     }
 
     const eventId = `evt_${randomUUID()}`;
-    const result = await options.provider.send(formatted.notification);
+    const result = await options.provider.send({
+      ...formatted.notification,
+      title: safeTitle(formatted.notification.title),
+      body: safeBody(formatted.notification.body, maxBodyChars),
+    });
 
     if (result.ok) {
       trace("sent", {

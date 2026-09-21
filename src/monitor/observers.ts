@@ -197,3 +197,40 @@ export async function scanTranscriptDir(
   }
   return out;
 }
+
+/**
+ * Qoder sessions live in <qoderDir>/<project-slug>/<session-id>.jsonl. Keyed by
+ * file stem because that is the hook payload's session_id; unlike the host
+ * bridge we only ever look up sessions we already know, so extra JSONL files in
+ * a project directory cannot invent phantom sessions.
+ */
+export async function scanQoderProjects(
+  qoderDir: string,
+): Promise<Map<string, { mtimeMs: number; size: number }>> {
+  const out = new Map<string, { mtimeMs: number; size: number }>();
+  let projects: string[] = [];
+  try {
+    const entries = await fs.readdir(qoderDir, { withFileTypes: true });
+    projects = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return out;
+  }
+  for (const project of projects) {
+    let files: string[] = [];
+    try {
+      files = await fs.readdir(join(qoderDir, project));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      try {
+        const stat = await fs.stat(join(qoderDir, project, file));
+        out.set(basename(file, ".jsonl"), { mtimeMs: stat.mtimeMs, size: stat.size });
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return out;
+}

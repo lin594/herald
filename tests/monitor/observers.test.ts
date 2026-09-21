@@ -7,6 +7,7 @@ import {
   matchArtifacts,
   observeGit,
   observeWorkspace,
+  scanQoderProjects,
   scanTranscriptDir,
   walkWorkspace,
 } from "../../src/monitor/observers.js";
@@ -103,5 +104,23 @@ describe("workspace observers", () => {
     expect(fresh.get(UUID)?.size).toBeGreaterThan(0);
 
     expect(await scanTranscriptDir(join(sessionsRoot, "missing"))).toEqual(new Map());
+  });
+
+  it("indexes Qoder transcripts as <project-slug>/<session-id>.jsonl", async () => {
+    const qoderRoot = join(root, "..", `cbm-qoder-${Date.now()}`);
+    const project = join(qoderRoot, "-Users-me-workspace-lin594-my-repo");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${UUID}.jsonl`), "{}\n");
+    writeFileSync(join(project, "segment-2026-09-20.jsonl"), "{}\n");
+    writeFileSync(join(project, `${UUID}.jsonl.bak`), "{}\n"); // not .jsonl
+    mkdirSync(join(qoderRoot, "empty-project"), { recursive: true });
+
+    const fresh = await scanQoderProjects(qoderRoot);
+    // Any JSONL stem is indexable: lookups happen by known session id only, so a
+    // stray file can never create a phantom session.
+    expect([...fresh.keys()].sort()).toEqual([UUID, "segment-2026-09-20"].sort());
+    expect(fresh.get(UUID)?.size).toBeGreaterThan(0);
+
+    expect(await scanQoderProjects(join(qoderRoot, "missing"))).toEqual(new Map());
   });
 });

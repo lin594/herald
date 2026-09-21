@@ -5,6 +5,7 @@ import type { IncomingAgentEvent } from "../core/incoming-event.js";
 import type { NamedToken } from "../config/env.js";
 import type { MonitorConfig } from "./config.js";
 import { MonitorNotifier } from "./notifier.js";
+import { agentLabel } from "./statemachine.js";
 import type { MonitorScheduler } from "./scheduler.js";
 import type { MonitorStore } from "./store.js";
 import type { DecidedNotification, EmitKind, SessionStatus } from "./types.js";
@@ -173,6 +174,11 @@ export class MonitorHub {
       fields.turnStartedMs = null;
       fields.lastActivityMs = nowMs;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
+    } else if (hookEvent === "Notification") {
+      // Qoder/Claude-Code user-facing prompt (permission or idle): the agent
+      // is blocked on a human, not on work.
+      fields.status = "WAITING_USER";
+      fields.lastMessage = str(raw.message)?.slice(0, 200) ?? null;
     } else if (hookEvent === "StopFailure" || hookEvent === "SessionEnd") {
       fields.status = hookEvent === "StopFailure" ? "FAILED" : "COMPLETED";
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
@@ -242,10 +248,12 @@ export class MonitorHub {
     const notification: DecidedNotification = {
       kind,
       level: EMIT_LEVELS[kind],
-      title: `[${agentType === "codex" ? "Codex" : agentType}] ${project ?? sessionId.slice(0, 12)} · ${label}`,
+      title: `[${agentLabel(agentType)}] ${project ?? sessionId.slice(0, 12)} · ${label}`,
       body: message || label,
     };
-    const sent = await this.deps.notifier.notify(key, notification, nowMs);
+    const sent = await this.deps.notifier.notify(key, notification, nowMs, {
+      group: agentLabel(agentType),
+    });
     return {
       status: 200,
       body: { ok: true, recorded: true, notified: sent },

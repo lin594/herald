@@ -39,9 +39,19 @@ function heartbeatBody(session: SessionRecord, nowMs: number): string {
   return lines.join("\n");
 }
 
+/** Display name used for notification titles and Bark group filtering. */
+export function agentLabel(agentType: string): string {
+  return agentType === "codex"
+    ? "Codex"
+    : agentType === "qoder"
+      ? "Qoder"
+      : agentType;
+}
+
 function titleFor(session: SessionRecord, label: string): string {
-  const agent = session.agentType === "codex" ? "Codex" : session.agentType;
-  return `[${agent}] ${session.project ?? session.sessionId.slice(0, 8)} · ${label}`;
+  return `[${agentLabel(session.agentType)}] ${
+    session.project ?? session.sessionId.slice(0, 8)
+  } · ${label}`;
 }
 
 /**

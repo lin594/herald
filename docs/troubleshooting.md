@@ -25,6 +25,22 @@ whether a Host Bridge has ever checked in. Then the container logs:
 - Legacy `notify = [...]` in `~/.codex/config.toml` must be a TOP-LEVEL key
   (not inside a table) or Codex ignores it.
 
+## Qoder hooks are silent
+
+- Qoder has **no hook trust step** but also no hot reload: fully restart the
+  IDE (or start a new CLI session) after `./cbm install-host`.
+- The adapter lives under the `hooks` key of `~/.qoder/settings.json`, next to
+  unrelated settings — check those entries survived, and that a project-level
+  `.qoder/settings.json` is not overriding the user file for that repo.
+- Only `UserPromptSubmit`, `PermissionRequest`, `Notification`
+  (`permission_prompt`), `Stop` and `StopFailure` are registered. Tool events are
+  dropped by design, so "no notification for each command" is not a bug.
+- Adapter failures are fail-open like Codex: see
+  `~/.config/agent-notify/logs/qoder-hook.log`.
+- No `processes`/activity for a Qoder session in `/sessions` means the
+  `~/.qoder/projects` mount or `CBM_QODER_DIR` is unset — the desktop app is
+  intentionally not counted as a working process.
+
 ## Host shows unreachable / "Host Signal Lost"
 
 - Bridge runs as LaunchAgent: `launchctl print gui/$(id -u)/com.lin594.cbm-host`

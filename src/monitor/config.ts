@@ -32,6 +32,7 @@ export interface MonitorConfig {
   scanMaxFiles: number;
   maxBodyChars: number;
   transcriptDir: string | null; // container path, read-only mount of ~/.codex/sessions
+  qoderDir: string | null; // container path, read-only mount of ~/.qoder/projects
   workspaces: WorkspaceConfig[];
   projectMap: Record<string, string>; // workspace/host path -> project name
 }
@@ -71,6 +72,7 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     scanMaxFiles: Number(env.CBM_SCAN_MAX_FILES ?? 5000),
     maxBodyChars: Number(env.CBM_MAX_BODY_CHARS ?? 1200),
     transcriptDir: env.CBM_TRANSCRIPT_DIR?.trim() || null,
+    qoderDir: env.CBM_QODER_DIR?.trim() || null,
     workspaces: parseWorkspaces(env.CBM_WORKSPACES),
     projectMap: parseProjectMap(env.CBM_PROJECT_MAP),
   };

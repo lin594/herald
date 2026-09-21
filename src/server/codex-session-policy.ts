@@ -105,7 +105,11 @@ export class CodexSessionPolicy {
     event: IncomingAgentEvent,
     tokenName: string,
   ): CodexSessionPolicyDecision {
-    if (event.agent !== "codex") return { action: "continue" };
+    // Qoder shares the Codex turn/task model: identical UserPromptSubmit +
+    // Stop semantics, so the same long-turn completion gate applies.
+    if (event.agent !== "codex" && event.agent !== "qoder") {
+      return { action: "continue" };
+    }
 
     this.prune();
 

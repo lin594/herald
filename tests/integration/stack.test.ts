@@ -138,6 +138,52 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
     expect(s.status).not.toBe("COMPLETED"); // a finished turn is not a finished task
   });
 
+  it("C-qoder: qoder hooks share the codex turn gate; Stop is not completion", async () => {
+    const h = harness();
+    const hook = (raw: Record<string, unknown>) =>
+      h.app.request("/events", {
+        method: "post",
+        headers: h.auth,
+        body: JSON.stringify({ agent: "qoder", raw }),
+      });
+    const session = () => h.store.listSessions().find((x) => x.sessionId === "qd-1")!;
+
+    expect(
+      (
+        await hook({
+          hook_event_name: "UserPromptSubmit",
+          session_id: "qd-1",
+          cwd: "/work/repo-a",
+          transcript_path: "/host/.qoder/projects/-work-repo-a/qd-1.jsonl",
+          prompt: "integrate qoder monitoring",
+        })
+      ).ok,
+    ).toBe(true);
+    expect(session().status).toBe("ACTIVE");
+    expect(session().agentType).toBe("qoder");
+    expect(session().project).toBe("Repo A");
+
+    await hook({
+      hook_event_name: "PermissionRequest",
+      session_id: "qd-1",
+      cwd: "/work/repo-a",
+      tool_name: "Bash",
+      tool_input: { command: "pnpm test", description: "Run the test suite" },
+    });
+    expect(session().status).toBe("WAITING_USER");
+    expect(h.sent.map((p) => p.body)).toContain("Run the test suite");
+
+    // Stop arrives milliseconds after the prompt, so the shared completion gate
+    // suppresses it: a short turn is neither a task completion nor a review.
+    await hook({
+      hook_event_name: "Stop",
+      session_id: "qd-1",
+      last_assistant_message: "done",
+    });
+    expect(session().status).not.toBe("COMPLETED");
+    expect(h.sent.some((p) => p.body === "done")).toBe(false);
+  });
+
   it("D: host heartbeat + observations are accepted and reported", async () => {
     const h = harness();
     const beat = await h.app.request("/host-heartbeat", {

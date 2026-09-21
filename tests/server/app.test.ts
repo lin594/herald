@@ -125,6 +125,36 @@ describe("server app", () => {
     });
   });
 
+  it("redacts secrets and caps text before pushing a formatted event", async () => {
+    const mockProvider = provider();
+    const app = createApp({ ...appOptions(mockProvider), maxBodyChars: 60 });
+
+    const res = await app.request("/events", {
+      method: "POST",
+      body: JSON.stringify({
+        agent: "qoder",
+        raw: {
+          hook_event_name: "PermissionRequest",
+          session_id: "qoder_server_1",
+          tool_name: "Bash",
+          tool_input: {
+            description: `sync with api_key=supersecret-123 ${"x".repeat(200)}`,
+          },
+        },
+      }),
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const sent = vi.mocked(mockProvider.send).mock.calls[0][0];
+    expect(sent.body).toContain("[REDACTED]");
+    expect(sent.body).not.toContain("supersecret-123");
+    expect(sent.body.length).toBeLessThanOrEqual(60);
+  });
+
   it("sends Chinese formatted notifications when configured", async () => {
     const mockProvider = provider();
     const app = createApp({

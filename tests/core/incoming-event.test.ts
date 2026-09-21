@@ -57,6 +57,22 @@ describe("IncomingAgentEvent schema", () => {
     expect(event.raw).toMatchObject({ hook_event_name: "PermissionRequest" });
   });
 
+  it("accepts a Qoder raw envelope", () => {
+    const event = parseIncomingAgentEvent({
+      agent: "qoder",
+      raw: {
+        hook_event_name: "Stop",
+        session_id: "62211ad1-730a-4de1-ae17-8ed9c4fd19a4",
+        cwd: "/Users/me/workspace/lin594/my-repo",
+        transcript_path: "/Users/me/.qoder/projects/my-repo/session.jsonl",
+        last_assistant_message: "Ready for review",
+      },
+    });
+
+    expect(event.agent).toBe("qoder");
+    expect(event.raw).toMatchObject({ hook_event_name: "Stop" });
+  });
+
   it("rejects the old normalized AgentEvent contract", () => {
     expect(() =>
       parseIncomingAgentEvent({

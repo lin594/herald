@@ -59,13 +59,17 @@ stall/resume edges, and adaptive "still running" heartbeats (15/30 min,
   SQLite on a named volume, secrets redacted before Bark.
 - A thin macOS Host Bridge (LaunchAgent) supplies real process/transcript/sleep
   facts; workspaces are watched strictly read-only (git is never mutated).
+- Hook integrations for **Codex** and **Qoder** (IDE + CLI) come from the same
+  installer; both reuse the shared turn/task rules, so a finished turn is never
+  mistaken for a finished task.
 - Agents report cooperatively with one call:
   `{"agent":"emit","raw":{"type":"waiting","message":"…"}}` → `./cbm emit waiting "…"`
   — see [docs/agent-integration.md](docs/agent-integration.md).
 
 Quickstart: fill `.env` (`BARK_ENDPOINT`, `AGENT_NOTIFY_TOKENS`) →
-`./cbm up` → `./cbm install-host` (then trust hooks once in the Codex TUI) →
-`./cbm test`. Ops docs: [architecture](docs/architecture.md) ·
+`./cbm up` → `./cbm install-host` (then trust hooks once in the Codex TUI, and
+restart Qoder once — its config has no hot reload) → `./cbm test`.
+Ops docs: [architecture](docs/architecture.md) ·
 [policy table](docs/notification-policy.md) ·
 [troubleshooting](docs/troubleshooting.md) ·
 [implementation summary](IMPLEMENTATION_SUMMARY.md).

@@ -5,7 +5,7 @@ a long-lived local monitor for hours-long AI-agent tasks that pushes only
 state changes that matter to iPhone via Bark. Deliberately NOT a rewrite —
 upstream notify/format/cooldown machinery is kept and reused.
 
-286 tests pass (`pnpm test`), typecheck clean, live stack verified in
+318 tests pass (`pnpm test`), typecheck clean, live stack verified in
 Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 
 ## VERIFIED (implemented + proven by test or live run)
@@ -35,17 +35,33 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 - Cooperative `emit started|milestone|waiting|blocked|failed|completed` via
   `/events` (never direct Bark); per-kind dedup clears; provider failure does
   not remember the fingerprint (retry allowed).
-- Codex hooks (UserPromptSubmit/Stop/PermissionRequest/StopFailure/SessionEnd)
-  update state only; **Stop is treated as a turn, never task completion**.
-- Secret redaction + suppression + body/title caps applied to every monitor
-  send before Bark (integration test I).
-- Container-side read-only: transcript growth (nested YYYY/MM/DD layout),
-  workspace mtime walk, `git status/diff --shortstat` strictly read-only,
-  artifact globs. Live-verified: session showed changedFiles/±lines/artifact
-  from a real mount.
+- Codex hooks (UserPromptSubmit/Stop/PermissionRequest/StopFailure) update
+  state only; **Stop is treated as a turn, never task completion**.
+- Qoder (`agent:"qoder"`): same hook family, own formatter + adapter, and the
+  same `CodexSessionPolicy` turn gate (identical UserPromptSubmit/Stop
+  semantics). PermissionRequest and approval `Notification`s land in
+  WAITING_USER with a timeSensitive push — integration test C-qoder. Live E2E
+  against mock Bark on a fixture transcript mount: prompt→ACTIVE, idle→QUIET,
+  stall→timeSensitive, transcript growth→"Resumed", `Stop` stayed ACTIVE; all
+  pushes carried group `Qoder` and titles `[Qoder] <project> · …`.
+- Installer hook merge is pure and unit-tested in `host/hooks-merge.mjs`
+  (`parseHooksDoc`/`ensureHooks`/`stripHooks`): unrelated top-level keys in
+  `~/.qoder/settings.json` survive, re-install is idempotent, uninstall removes
+  only our own entries and restores the file byte-for-byte.
+- Secret redaction + suppression + body/title caps apply to **every** push
+  before Bark: monitor sends and the upstream formatted sends now share
+  `safeBody`/`safeTitle` (integration test I; live proof — a Qoder tool
+  description containing `api_key=…` and `token: …` arrived as
+  `Upload with [REDACTED] and [REDACTED]`, which leaked verbatim before this
+  fix was found by the live run).
+- Container-side read-only: transcript growth (Codex nested YYYY/MM/DD, Qoder
+  `<project-slug>/<session-id>.jsonl`), workspace mtime walk, `git
+  status/diff --shortstat` strictly read-only, artifact globs. Live-verified:
+  session showed changedFiles/±lines/artifact from a real mount.
 - Host Bridge (LaunchAgent, 30 s): heartbeat + facts-only observations;
   resident daemons filtered; live `processes:0` when idle, `HOST_AVAILABLE`
-  in `/status`.
+  in `/status`, and `sessionIds:3` from real `~/.qoder/projects` transcripts
+  on the current Qoder session(s).
 
 **Tooling**
 - `./cbm` wrapper (up/down/logs/test/doctor/emit/status/sessions/install-host/
@@ -60,12 +76,15 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
   new agent distributions may need a marker added (troubleshooting §"stuck ACTIVE").
 - **Session↔workspace matching**: via project name / `CBM_PROJECT_MAP`;
   multi-session-per-repo attribution is coarse by design.
-- **Transcript growth channel** works only when `CBM_TRANSCRIPT_DIR` +
-  sessions mount are configured (off by default).
+- **Transcript growth channel** works only when `CBM_TRANSCRIPT_DIR` (Codex) /
+  `CBM_QODER_DIR` (Qoder) + their read-only mounts are configured (off by default).
 - **Subagent/rapid-loop debouncing**: relies on upstream cooldown policy rather
   than a CBM-specific mechanism.
-- Qoder / Claude Code / generic workers: contract documented + emit-capable;
-  no dedicated installer beyond the Codex path.
+- **Qoder hook E2E**: installer, adapter, formatter and policy are covered by
+  tests; a real phone notification additionally needs one Qoder restart (no
+  config hot-reload) and the `~/.qoder/projects` mount.
+- Claude Code / generic workers: emit-capable through the documented contract,
+  no CBM-side installer (upstream ships its own adapters).
 
 ## NOT_IMPLEMENTED (deliberate)
 
@@ -81,7 +100,8 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 |---|---|
 | Server wiring | `src/server/index.ts`, `src/server/app.ts` |
 | Monitor core | `src/monitor/{statemachine,scheduler,notifier,hub,store,db,config,observers,redact,types}.ts` |
-| Host bridge | `host/{cbm-host.mjs,install-host.mjs,uninstall-host.mjs}`, `deploy/host/*.plist.template` |
+| Host bridge | `host/{cbm-host.mjs,hooks-merge.mjs,install-host.mjs,uninstall-host.mjs}`, `deploy/host/*.plist.template` |
+| Agent adapters | `examples/codex/codex-agent-notify.mjs`, `examples/qoder/qoder-agent-notify.mjs`, `src/formatters/{codex,qoder}.ts` |
 | Deploy | `deploy/docker/{docker-compose.yml,docker-compose.override.example.yml,Dockerfile}`, `.env.example`, `cbm` |
-| Tests | `tests/monitor/*` (43 with integration), `tests/host/*`, `tests/integration/stack.test.ts` (A/B/C/D/E/G/H/I), upstream suites untouched & green |
+| Tests | `tests/monitor/*`, `tests/host/*` (incl. `hooks-merge`), `tests/integration/stack.test.ts` (A/B/C/C-qoder/D/E/G/H/I), upstream suites extended in place for the qoder envelope/policy and content-safety assertions |
 | Docs | `docs/{environment-findings,upstream-gap-analysis,architecture,agent-integration,notification-policy,troubleshooting}.md` |

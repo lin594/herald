@@ -1,5 +1,5 @@
 import type { MonitorConfig } from "./config.js";
-import { limitBody, looksLikeSecretDump, redactText } from "./redact.js";
+import { safeBody, safeTitle } from "./redact.js";
 import { fingerprintOf, type MonitorStore } from "./store.js";
 import type { DecidedNotification } from "./types.js";
 import type { NotificationProvider } from "../providers/types.js";
@@ -7,6 +7,8 @@ import type { NotificationProvider } from "../providers/types.js";
 export interface NotifyOptions {
   /** skip dedup checks (explicit user-triggered tests) */
   force?: boolean;
+  /** agent display name, so one session's pushes stay in a single Bark group */
+  group?: string;
 }
 
 /**
@@ -27,14 +29,11 @@ export class MonitorNotifier {
     nowMs: number,
     options: NotifyOptions = {},
   ): Promise<boolean> {
-    const body = redactText(notification.body);
-    const safeBody = looksLikeSecretDump(body)
-      ? "(content suppressed: looks like secret material)"
-      : limitBody(body, this.config.maxBodyChars);
-    const title = limitBody(redactText(notification.title), 120);
+    const body = safeBody(notification.body, this.config.maxBodyChars);
+    const title = safeTitle(notification.title);
 
     if (sessionKey && !options.force) {
-      const fingerprint = fingerprintOf(sessionKey, notification.kind, safeBody);
+      const fingerprint = fingerprintOf(sessionKey, notification.kind, body);
       if (this.store.isDuplicateFingerprint(sessionKey, notification.kind, fingerprint)) {
         return false;
       }
@@ -52,9 +51,9 @@ export class MonitorNotifier {
 
     const result = await this.provider.send({
       title,
-      body: safeBody,
+      body,
       urgency: notification.level === "timeSensitive" ? "time_sensitive" : "normal",
-      group: "Codex",
+      group: options.group ?? "Codex",
       level: notification.level,
     } as Parameters<NotificationProvider["send"]>[0]);
 
@@ -64,13 +63,13 @@ export class MonitorNotifier {
         kind: notification.kind,
         level: notification.level,
         title,
-        body: safeBody,
+        body,
         nowMs,
         ok: result.ok,
         error: result.error,
       });
       if (result.ok && !options.force) {
-        const fingerprint = fingerprintOf(sessionKey, notification.kind, safeBody);
+        const fingerprint = fingerprintOf(sessionKey, notification.kind, body);
         this.store.rememberFingerprint(sessionKey, notification.kind, fingerprint, nowMs);
       }
     }

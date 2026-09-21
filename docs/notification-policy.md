@@ -29,7 +29,11 @@ Tests drive these with injected clocks, never real waits.
 | Host Bridge heartbeat gap > `CBM_HOST_HEARTBEAT_TIMEOUT_SECONDS` (180 s) while a session is working | HOST_AVAILABLE → HOST_UNREACHABLE | "Host Signal Lost" (sleep or network) — **not** an agent failure | once (`host_lost` fingerprint) |
 | Heartbeats resume | HOST_UNREACHABLE → HOST_AVAILABLE | none. Recovery re-baselines every working session's clocks to now and status→QUIET: a 12 h sleep can never surface as "stalled 12 h", and no notifications replay | clears stall/resume fingerprints |
 
-## Content safety (applied to every send, `MonitorNotifier`)
+## Content safety (every push, both pipelines)
+
+Monitor-originated pushes go through `MonitorNotifier`; hook-derived
+formatted pushes through `src/server/app.ts`. Both apply the same
+`safeTitle`/`safeBody` helpers, so no push path can bypass them:
 
 1. Secret redaction **before** Bark: `password/token/secret/api_key/Authorization/Bearer/AWS_SECRET/BARK_DEVICE_KEY/private-key headers/sk-…/ghp_…` → `[REDACTED]`.
 2. Bodies that are ≥3 `[REDACTED]` markers are suppressed wholesale.
@@ -37,6 +41,11 @@ Tests drive these with injected clocks, never real waits.
 4. Prompts, source code, logs and paper text are never sent as bodies — only the
    short cooperative `emit` messages and state summaries above.
 5. Provider failure never remembers the fingerprint: the next tick may retry.
+
+Bark `group` is the agent display name — `Codex`, `Qoder`, or the emit
+`agent_type` (`CBM_EMIT_AGENT`) — so one session's pushes always land in the
+same group. Host-level pushes (`host_lost`) are not agent-scoped and keep the
+default group.
 
 ## Restart safety
 

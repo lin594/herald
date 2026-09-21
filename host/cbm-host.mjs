@@ -10,7 +10,7 @@
 
 import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { hostname, homedir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -20,7 +20,7 @@ export const BRIDGE_VERSION = "0.1.0";
 const DEFAULT_INTERVAL_SECONDS = 30;
 // Executable basename marks a possibly-working agent (node|npx wrapper allowed
 // as argv[0] with the agent as argv[1]). Path substrings must NOT match.
-const AGENT_EXES = new Set(["codex", "claude", "opencode"]);
+const AGENT_EXES = new Set(["codex", "claude", "opencode", "qoder"]);
 const RUNTIME_EXES = new Set(["node", "deno", "bun", "npx"]);
 // Resident daemons / GUI helpers are NOT per-session work: an always-on
 // app-server or framework helper would make every session look ACTIVE forever.
@@ -30,6 +30,8 @@ const RESIDENT_MARKERS = [
   " Helper",
   "code-mode-host",
   "Updater.app",
+  // Qoder desktop is a GUI app that lives for hours; only its CLI counts.
+  "/Qoder.app/Contents/MacOS/Qoder",
 ];
 // Transcript file touched within this window means its session is alive.
 const TRANSCRIPT_ACTIVE_WINDOW_MS = 120_000;
@@ -58,6 +60,11 @@ export function parseHostConfig(raw) {
       typeof raw.codexSessionsDir === "string" && raw.codexSessionsDir
         ? raw.codexSessionsDir
         : "~/.codex/sessions",
+    ),
+    qoderProjectsDir: expandHome(
+      typeof raw.qoderProjectsDir === "string" && raw.qoderProjectsDir
+        ? raw.qoderProjectsDir
+        : "~/.qoder/projects",
     ),
     intervalSeconds:
       typeof raw.intervalSeconds === "number" && raw.intervalSeconds > 0
@@ -134,6 +141,42 @@ export function scanActiveSessionIds(sessionsDir, nowMs, windowMs = TRANSCRIPT_A
   return [...new Set(ids)];
 }
 
+// Codex rollout files live in sessions/YYYY/MM/DD; Qoder desktop sessions in
+// <projectsDir>/<project-slug>/<uuid>.jsonl (flat per project).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function scanActiveQoderSessionIds(projectsDir, nowMs, windowMs = TRANSCRIPT_ACTIVE_WINDOW_MS) {
+  const ids = [];
+  let projects;
+  try {
+    projects = readdirSync(projectsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return ids;
+  }
+  for (const project of projects) {
+    let files;
+    try {
+      files = readdirSync(join(projectsDir, project));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const uuid = basename(file, ".jsonl");
+      if (!UUID_RE.test(uuid)) continue;
+      try {
+        const stat = statSync(join(projectsDir, project, file));
+        if (nowMs - stat.mtimeMs <= windowMs) ids.push(uuid);
+      } catch {
+        // raced with rotation; ignore
+      }
+    }
+  }
+  return [...new Set(ids)];
+}
+
 // Wall-clock jump backwards-or-skipping beyond 2 intervals means the host slept.
 export function detectSleepGap(lastTickMs, nowMs, intervalSeconds) {
   if (lastTickMs == null) return undefined;
@@ -202,7 +245,13 @@ export async function tickOnce(config, state, nowMs = Date.now(), deps = {}) {
   });
 
   const processes = await collectProcs();
-  const sessionIds = scan(config.codexSessionsDir, nowMs);
+  const sessionIds = [
+    ...scan(config.codexSessionsDir, nowMs),
+    ...(deps.scanActiveQoderSessionIds ?? scanActiveQoderSessionIds)(
+      config.qoderProjectsDir,
+      nowMs,
+    ),
+  ];
   const observationsOk = await post(config.serverUrl, config.token, "/observations", {
     hostname: host,
     ...(sleepGapSeconds != null ? { sleep_gap_seconds: sleepGapSeconds } : {}),

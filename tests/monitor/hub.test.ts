@@ -25,6 +25,7 @@ const config: MonitorConfig = {
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   transcriptDir: null,
+  qoderDir: null,
   workspaces: [],
   projectMap: { "/work/repo-a": "Repo A" },
 };

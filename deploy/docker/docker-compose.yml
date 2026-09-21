@@ -40,6 +40,7 @@ services:
       CBM_SCAN_MAX_FILES: "${CBM_SCAN_MAX_FILES:-5000}"
       CBM_MAX_BODY_CHARS: "${CBM_MAX_BODY_CHARS:-1200}"
       CBM_TRANSCRIPT_DIR: "${CBM_TRANSCRIPT_DIR:-}"
+      CBM_QODER_DIR: "${CBM_QODER_DIR:-}"
       CBM_WORKSPACES: "${CBM_WORKSPACES:-}"
       CBM_PROJECT_MAP: "${CBM_PROJECT_MAP:-}"
     volumes:
@@ -50,6 +51,9 @@ services:
       # Codex rollout transcripts (activity observation channel):
       #   CBM_HOST_CODEX_SESSIONS_DIR=~/.codex/sessions  CBM_TRANSCRIPT_DIR=/host/.codex/sessions
       - "${CBM_HOST_CODEX_SESSIONS_DIR:-./unused-mount}:/host/.codex/sessions:ro"
+      # Qoder session transcripts (same channel for the Qoder IDE/CLI):
+      #   CBM_HOST_QODER_PROJECTS_DIR=~/.qoder/projects  CBM_QODER_DIR=/host/.qoder/projects
+      - "${CBM_HOST_QODER_PROJECTS_DIR:-./unused-mount}:/host/.qoder/projects:ro"
       # Workspace mounts belong in docker-compose.override.yml (merged automatically
       # by the ./cbm wrapper), one explicit `:ro` bind per watched repository, e.g.
       #   volumes:

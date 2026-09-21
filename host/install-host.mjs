@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { ensureHooks, parseHooksDoc } from "./hooks-merge.mjs";
 
 const LABEL = "com.lin594.cbm-host";
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -83,6 +84,7 @@ writeJsonWithBackup(
     serverUrl,
     token: token.value,
     codexSessionsDir: "~/.codex/sessions",
+    qoderProjectsDir: "~/.qoder/projects",
     intervalSeconds: 30,
     debugLogPath: join(configDir, "logs", "host-bridge.log"),
   },
@@ -100,50 +102,80 @@ writeJsonWithBackup(
   },
   { overwrite: force },
 );
+
+writeJsonWithBackup(
+  join(configDir, "qoder.json"),
+  {
+    serverUrl,
+    token: token.value,
+    timeoutMs: 2000,
+    notifyPermissionRequests: true,
+    debugLogPath: join(configDir, "logs", "qoder-hook.log"),
+  },
+  { overwrite: force },
+);
 console.log(`using token name "${token.name}" (value not printed)`);
 
-// ── 2. Codex hooks (~/.codex/hooks.json, Claude-Code style, verified schema) ──
+// ── 2. Hook registrations ──────────────────────────────────────────────────
+// Codex: ~/.codex/hooks.json. Qoder: a "hooks" key inside
+// ~/.qoder/settings.json, which also holds unrelated user settings, so the
+// merge must preserve every other top-level key.
 
-const HOOK_EVENTS = ["UserPromptSubmit", "PermissionRequest", "Stop"];
-const adapterCommand = `node ${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}`;
-const hooksPath = join(homedir(), ".codex", "hooks.json");
-
-let hooksDoc = { hooks: {} };
-if (existsSync(hooksPath)) {
-  try {
-    const parsed = JSON.parse(readFileSync(hooksPath, "utf8"));
-    hooksDoc = typeof parsed.hooks === "object" && parsed.hooks !== null ? parsed : { hooks: {} };
-    if (!parsed.hooks) {
-      // unknown shape: back up and start fresh content merged from empty
-      hooksDoc = { hooks: {} };
-      console.log(`backup -> ${backup(hooksPath)} (unrecognized hooks.json shape)`);
-      writeFileSync(hooksPath, JSON.stringify(hooksDoc, null, 2) + "\n", "utf8");
-    }
-  } catch {
-    console.log(`backup -> ${backup(hooksPath)} (unparseable hooks.json)`);
-    hooksDoc = { hooks: {} };
-  }
-}
-
-let hooksChanged = false;
-for (const event of HOOK_EVENTS) {
-  const list = Array.isArray(hooksDoc.hooks[event]) ? hooksDoc.hooks[event] : [];
-  const already = list.some((entry) =>
-    (entry.hooks ?? []).some((h) => (h.command ?? "").includes("codex-agent-notify.mjs")),
+function readHooksDoc(path) {
+  const { doc, damaged } = parseHooksDoc(
+    existsSync(path) ? readFileSync(path, "utf8") : null,
   );
-  if (!already) {
-    list.push({ hooks: [{ type: "command", command: adapterCommand }] });
-    hooksChanged = true;
+  if (damaged) {
+    console.log(
+      `warning: ${path} is not a usable hooks object; rewriting it (original gets backed up)`,
+    );
   }
-  hooksDoc.hooks[event] = list;
+  return doc;
 }
-if (hooksChanged) {
-  mkdirSync(dirname(hooksPath), { recursive: true });
-  if (existsSync(hooksPath)) console.log(`backup -> ${backup(hooksPath)}`);
-  writeFileSync(hooksPath, JSON.stringify(hooksDoc, null, 2) + "\n", "utf8");
-  console.log(`updated ${hooksPath} (added cbm adapter to ${HOOK_EVENTS.join("/")})`);
+
+function writeHooksDoc(path, hooksDoc, events) {
+  mkdirSync(dirname(path), { recursive: true });
+  if (existsSync(path)) console.log(`backup -> ${backup(path)}`);
+  writeFileSync(path, JSON.stringify(hooksDoc, null, 2) + "\n", "utf8");
+  console.log(`updated ${path} (added cbm adapter to ${events.join("/")})`);
+}
+
+const codexEvents = ["UserPromptSubmit", "PermissionRequest", "Stop"];
+const codexPath = join(homedir(), ".codex", "hooks.json");
+const codexHooks = readHooksDoc(codexPath);
+if (
+  ensureHooks(
+    codexHooks,
+    codexEvents,
+    `node ${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}`,
+  )
+) {
+  writeHooksDoc(codexPath, codexHooks, codexEvents);
 } else {
-  console.log(`SKIP hooks: adapter already registered in ${hooksPath}`);
+  console.log(`SKIP hooks: adapter already registered in ${codexPath}`);
+}
+
+// Qoder's Stop hook is blocking, so cap the adapter's wall-clock budget.
+const qoderEvents = [
+  "UserPromptSubmit",
+  "PermissionRequest",
+  "Notification",
+  "Stop",
+  "StopFailure",
+];
+const qoderPath = join(homedir(), ".qoder", "settings.json");
+const qoderSettings = readHooksDoc(qoderPath);
+if (
+  ensureHooks(
+    qoderSettings,
+    qoderEvents,
+    `node ${join(REPO, "examples", "qoder", "qoder-agent-notify.mjs")}`,
+    { timeout: 5 },
+  )
+) {
+  writeHooksDoc(qoderPath, qoderSettings, qoderEvents);
+} else {
+  console.log(`SKIP hooks: adapter already registered in ${qoderPath}`);
 }
 
 // ── 3. LaunchAgent ─────────────────────────────────────────────────────────
@@ -182,5 +214,8 @@ Next steps:
   1. ./cbm up                       (start the container stack)
   2. Open a codex TUI once and REVIEW-AND-TRUST the new hooks —
      Codex skips untrusted hooks; this is a one-time interactive step.
-  3. ./cbm test && ./cbm emit milestone "cbm install check"
+  3. Restart Qoder — it has no hook trust prompt and no config hot-reload.
+     Also mount its transcripts in the container (see .env.example:
+     CBM_HOST_QODER_PROJECTS_DIR + CBM_QODER_DIR), then ./cbm up again.
+  4. ./cbm test && ./cbm emit milestone "cbm install check"
   Bridge log: ${join(logDir, "host-bridge.log")}`);

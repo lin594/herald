@@ -2,7 +2,7 @@
 
 Two channels, both landing on the same server — never talk to Bark directly.
 
-1. **Passive (hooks)** — automatic, already wired for Codex by `./cbm install-host`.
+1. **Passive (hooks)** — automatic, already wired for Codex and Qoder by `./cbm install-host`.
 2. **Cooperative (`emit`)** — the agent tells the monitor what stage it is at.
    Highest-signal channel; any agent or worker can use it with one HTTP call.
 
@@ -18,6 +18,54 @@ works via emit + observations.
 
 Legacy note: the old top-level `notify = [...]` in `config.toml` still works
 as a fallback; hooks are preferred and both can coexist (server-side dedup).
+
+## Qoder (IDE and CLI, same hook contract)
+
+`./cbm install-host` writes `~/.config/agent-notify/qoder.json` and merges the
+adapter into the `hooks` key of `~/.qoder/settings.json`, leaving every other
+setting untouched (backed up first, idempotent). `./cbm uninstall-host --all`
+removes exactly those entries again.
+
+Unlike Codex there is **no trust prompt**, but also **no hot reload**: restart
+Qoder once after installing. Hook payloads arrive as JSON on stdin; the adapter
+(`examples/qoder/qoder-agent-notify.mjs`) forwards them as `{"agent":"qoder","raw":…}`.
+
+To wire it by hand instead of using the installer:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command",
+        "command": "node /path/to/codex-bark-monitor/examples/qoder/qoder-agent-notify.mjs",
+        "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+Project-level `.qoder/settings.json` and `.qoder/settings.local.json` override
+the user file, so a repo can opt in or out independently.
+
+| Qoder hook event | session state | phone |
+|---|---|---|
+| `UserPromptSubmit` | ACTIVE, turn clock starts | — |
+| `PermissionRequest` | WAITING_USER | timeSensitive |
+| `Notification` (`permission_prompt` only) | WAITING_USER | timeSensitive |
+| `Stop` | long turn → WAITING_USER ("Ready to review"); short turn suppressed by the shared completion gate | active |
+| `StopFailure` | FAILED | timeSensitive |
+
+Qoder's `Stop` is a *turn* boundary, so it never marks the task done — use
+`emit completed` for that. `SessionEnd` (clear/logout/resume) is not forwarded
+either: it says the UI closed, not that the work finished. Same for tool-level
+events (`PreToolUse`, `PostToolUse`, `SubagentStart`, `PreCompact`,
+`FileChanged`, …): activity, not state.
+
+The desktop app lives for hours, so `ps` says nothing about whether a session is
+working. The Host Bridge instead watches `~/.qoder/projects/<slug>/<uuid>.jsonl`
+mtimes and reports the uuid as an observed session; the container mirrors that
+with `CBM_HOST_QODER_PROJECTS_DIR` + `CBM_QODER_DIR` (read-only). Without the
+mount, hook events alone still drive every state above.
 
 ## Cooperative emit (any agent: Codex, Qoder, Claude Code, CI workers)
 

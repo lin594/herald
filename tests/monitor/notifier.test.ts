@@ -22,6 +22,7 @@ const config: MonitorConfig = {
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   transcriptDir: null,
+  qoderDir: null,
   workspaces: [],
   projectMap: {},
 };
@@ -49,6 +50,22 @@ describe("MonitorNotifier", () => {
     );
     expect(sent[0].body).not.toContain("supersecretvalue123");
     expect(sent[0].body).toContain("[REDACTED]");
+  });
+
+  it("groups pushes under the session's agent, defaulting to Codex", async () => {
+    const { notifier, sent } = fixture();
+    await notifier.notify(
+      "macbook:q1",
+      { kind: "heartbeat", level: "passive", title: "T", body: "b" },
+      T0,
+      { group: "Qoder" },
+    );
+    await notifier.notify(
+      "macbook:h1",
+      { kind: "host_lost", level: "active", title: "T", body: "b" },
+      T0,
+    );
+    expect(sent.map((payload) => payload.group)).toEqual(["Qoder", "Codex"]);
   });
 
   it("suppresses bodies that are mostly secret material", async () => {

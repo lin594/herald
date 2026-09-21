@@ -4,10 +4,11 @@ import {
   observeGit,
   observeWorkspace,
   scanTranscriptDir,
+  scanQoderProjects,
   type GitSummary,
 } from "./observers.js";
 import type { MonitorNotifier } from "./notifier.js";
-import { evaluateSessionTick } from "./statemachine.js";
+import { agentLabel, evaluateSessionTick } from "./statemachine.js";
 import type { MonitorStore } from "./store.js";
 import type { SessionRecord } from "./types.js";
 
@@ -111,7 +112,9 @@ export class MonitorScheduler {
         this.store.clearFingerprint(session.key, [kind]);
       }
       for (const notification of result.notifications) {
-        const sent = await this.notifier.notify(session.key, notification, nowMs);
+        const sent = await this.notifier.notify(session.key, notification, nowMs, {
+          group: agentLabel(session.agentType),
+        });
         if (sent) {
           console.log(`[cbm] notified ${notification.kind} session=${session.key}`);
         }
@@ -188,8 +191,17 @@ export class MonitorScheduler {
 
   private async collectTranscriptFacts(): Promise<Map<string, { grew: boolean }>> {
     const out = new Map<string, { grew: boolean }>();
-    if (!this.config.transcriptDir) return out;
-    const fresh = await scanTranscriptDir(this.config.transcriptDir);
+    const fresh = new Map<string, { mtimeMs: number; size: number }>();
+    if (this.config.transcriptDir) {
+      for (const [uuid, stat] of await scanTranscriptDir(this.config.transcriptDir)) {
+        fresh.set(uuid, stat);
+      }
+    }
+    if (this.config.qoderDir) {
+      for (const [uuid, stat] of await scanQoderProjects(this.config.qoderDir)) {
+        fresh.set(uuid, stat);
+      }
+    }
     for (const [uuid, stat] of fresh) {
       const previous = this.transcriptCache.get(uuid);
       if (previous && (stat.size > previous.size || stat.mtimeMs > previous.mtimeMs)) {

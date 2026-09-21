@@ -66,6 +66,38 @@ describe("CodexSessionPolicy", () => {
     expect(policy.sessionCount()).toBe(0);
   });
 
+  it("applies the same turn gate to Qoder, and ignores other agents", () => {
+    let nowMs = 1_000;
+    const policy = new CodexSessionPolicy({
+      completionMinSeconds: 120,
+      nowMs: () => nowMs,
+    });
+    const qoderEvent = (hook_event_name: string) => ({
+      agent: "qoder" as const,
+      raw: { hook_event_name, session_id: "session_1" },
+    });
+
+    expect(policy.apply(qoderEvent("UserPromptSubmit"), "macbook")).toMatchObject({
+      action: "suppress",
+      reason: "state_recorded",
+    });
+    nowMs += 10_000;
+    expect(policy.apply(qoderEvent("Stop"), "macbook")).toMatchObject({
+      action: "suppress",
+      reason: "below_threshold",
+    });
+
+    policy.apply(qoderEvent("UserPromptSubmit"), "macbook");
+    nowMs += 121_000;
+    expect(policy.apply(qoderEvent("Stop"), "macbook")).toEqual({
+      action: "continue",
+    });
+
+    const emitEvent = { agent: "emit" as const, raw: { type: "milestone" } };
+    expect(policy.apply(emitEvent, "macbook")).toEqual({ action: "continue" });
+    expect(policy.sessionCount()).toBe(0);
+  });
+
   it("continues PermissionRequest events regardless of permission mode", () => {
     const policy = new CodexSessionPolicy({
       completionMinSeconds: 120,

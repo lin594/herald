@@ -31,6 +31,7 @@ Read verdicts below come from reading `src/server/*`, `src/formatters/codex.ts`,
 | Notification policy table | scattered in policies/formatters | **MODIFY** | consolidate into `src/monitor/policy.ts` decision table; state machine + cooldown feed it. |
 | CLI (`test`, `doctor`) | exists, minimal | **MODIFY** | extend doctor checks (orbstack, compose, hooks probe, bridge, mounts); add `emit`, `install-host`, `uninstall-host`, `up/down/status/sessions/logs` wrappers. |
 | Health endpoint | exists; compose healthcheck wired | **KEEP** | extend payload with db/scheduler status (degraded without restart loop). |
+| Qoder support | none upstream (Codex/Claude Code/OpenCode only) | **ADD** (done) | Qoder's hook contract is the same JSON-on-stdin family, so the addition is a `qoder` agent enum value + formatter + adapter, not a new pipeline. Qoder's `UserPromptSubmit`/`Stop` pair has identical turn semantics to Codex → **MODIFY** `CodexSessionPolicy` to gate both on the shared completion threshold instead of adding a fifth policy. |
 
 ## Explicit DROP list
 

@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "n
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { parseHooksDoc, stripHooks } from "./hooks-merge.mjs";
 
 const LABEL = "com.lin594.cbm-host";
 const plistPath = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
@@ -24,33 +25,25 @@ if (existsSync(plistPath)) {
 }
 
 if (process.argv.includes("--all")) {
-  const hooksPath = join(homedir(), ".codex", "hooks.json");
-  if (existsSync(hooksPath)) {
-    try {
-      const doc = JSON.parse(readFileSync(hooksPath, "utf8"));
-      let changed = false;
-      for (const [event, list] of Object.entries(doc.hooks ?? {})) {
-        if (!Array.isArray(list)) continue;
-        const kept = list
-          .map((entry) => ({
-            ...entry,
-            hooks: (entry.hooks ?? []).filter(
-              (h) => !(h.command ?? "").includes("codex-agent-notify.mjs"),
-            ),
-          }))
-          .filter((entry) => (entry.hooks ?? []).length > 0);
-        if (kept.length !== list.length) changed = true;
-        doc.hooks[event] = kept;
-      }
-      if (changed) {
-        copyFileSync(hooksPath, `${hooksPath}.cbm-backup-uninstall`);
-        writeFileSync(hooksPath, JSON.stringify(doc, null, 2) + "\n", "utf8");
-        console.log(`removed cbm adapter entries from ${hooksPath}`);
-      } else {
-        console.log("no cbm adapter entries found");
-      }
-    } catch {
-      console.log("hooks.json unparseable; left untouched");
+  // Marker matches the codex and qoder adapters alike. settings.json keeps its
+  // unrelated top-level keys because only the "hooks" entries are touched.
+  for (const hooksPath of [
+    join(homedir(), ".codex", "hooks.json"),
+    join(homedir(), ".qoder", "settings.json"),
+  ]) {
+    if (!existsSync(hooksPath)) continue;
+    const text = readFileSync(hooksPath, "utf8");
+    const { doc, damaged } = parseHooksDoc(text);
+    if (damaged) {
+      console.log(`${hooksPath} has an unexpected shape; left untouched`);
+      continue;
+    }
+    if (stripHooks(doc)) {
+      copyFileSync(hooksPath, `${hooksPath}.cbm-backup-uninstall`);
+      writeFileSync(hooksPath, JSON.stringify(doc, null, 2) + "\n", "utf8");
+      console.log(`removed cbm adapter entries from ${hooksPath}`);
+    } else {
+      console.log(`no cbm adapter entries found in ${hooksPath}`);
     }
   }
   console.log("config files under ~/.config/agent-notify were kept");

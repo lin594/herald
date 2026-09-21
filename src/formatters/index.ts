@@ -6,6 +6,7 @@ import {
 } from "./claude-code.js";
 import { formatCodexEvent } from "./codex.js";
 import { formatOpenCodeEvent } from "./opencode.js";
+import { formatQoderEvent } from "./qoder.js";
 
 export function formatIncomingEvent(
   event: IncomingAgentEvent,
@@ -16,6 +17,9 @@ export function formatIncomingEvent(
   }
   if (event.agent === "codex") {
     return formatCodexEvent(event, options);
+  }
+  if (event.agent === "qoder") {
+    return formatQoderEvent(event, options);
   }
   return formatOpenCodeEvent(event, options);
 }

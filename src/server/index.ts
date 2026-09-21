@@ -56,6 +56,7 @@ const app = createApp({
   }),
   opencodeCompletionMinSeconds: config.opencodeCompletionMinSeconds,
   cooldownSeconds: config.cooldownSeconds,
+  maxBodyChars: monitorConfig.maxBodyChars,
   cooldownPolicy: new CooldownPolicy({
     cooldownSeconds: config.cooldownSeconds,
     persist: store?.cooldownStore(),

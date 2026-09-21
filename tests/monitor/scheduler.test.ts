@@ -1,3 +1,6 @@
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../../src/monitor/db.js";
 import { MonitorStore } from "../../src/monitor/store.js";
@@ -24,11 +27,12 @@ const config: MonitorConfig = {
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   transcriptDir: null,
+  qoderDir: null,
   workspaces: [],
   projectMap: {},
 };
 
-function fixture() {
+function fixture(overrides: Partial<MonitorConfig> = {}, sessionId = "s1") {
   const store = new MonitorStore(openDatabase(":memory:"));
   const sent: NotificationPayload[] = [];
   const provider = {
@@ -38,19 +42,21 @@ function fixture() {
       return { ok: true, status: 200 };
     }),
   };
-  const notifier = new MonitorNotifier(store, provider, config);
-  const scheduler = new MonitorScheduler(store, notifier, config);
+  const configWithOverrides: MonitorConfig = { ...config, ...overrides };
+  const notifier = new MonitorNotifier(store, provider, configWithOverrides);
+  const scheduler = new MonitorScheduler(store, notifier, configWithOverrides);
+  const key = `macbook:${sessionId}`;
   store.upsertSession({
-    key: "macbook:s1",
-    sessionId: "s1",
+    key,
+    sessionId,
     agentType: "codex",
     nowMs: T0,
     hostname: "mbp",
     project: "P",
   });
-  store.updateSession("macbook:s1", { status: "ACTIVE", lastActivityMs: T0 });
+  store.updateSession(key, { status: "ACTIVE", lastActivityMs: T0 });
   store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 });
-  return { store, sent, scheduler };
+  return { store, sent, scheduler, key };
 }
 
 describe("MonitorScheduler host gap (sleep/wake)", () => {
@@ -107,5 +113,33 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
     expect(sent.filter((p) => p.body.includes("No observable activity"))).toHaveLength(0);
     // Heartbeats are allowed but must respect the adaptive schedule (<= 3/h).
     expect(sent.filter((p) => p.body.includes("Running"))).toHaveLength(1);
+  });
+
+  it("treats a growing Qoder transcript as activity, without a host process", async () => {
+    const QODER_SESSION = "62211ad1-730a-4de1-ae17-8ed9c4fd19a4";
+    const dir = join(tmpdir(), `cbm-qoder-scan-${T0}`);
+    const project = join(dir, "-Users-me-work-repo");
+    mkdirSync(project, { recursive: true });
+    const transcript = join(project, `${QODER_SESSION}.jsonl`);
+    writeFileSync(transcript, '{"type":"user"}\n');
+
+    const { store, sent, scheduler } = fixture({ qoderDir: dir }, QODER_SESSION);
+
+    // No hook events and no agent process: a long, quiet model turn.
+    const later = T0 + 700_000;
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: later });
+    await scheduler.run(later);
+    expect(store.getSession(`macbook:${QODER_SESSION}`)?.status).toBe("QUIET");
+
+    // The transcript file grew, which is the only signal that work continued.
+    appendFileSync(transcript, '{"type":"assistant"}\n');
+    const grown = later + 60_000;
+    store.recordHostHeartbeat({ hostname: "mbp", nowMs: grown });
+    await scheduler.run(grown);
+
+    const session = store.getSession(`macbook:${QODER_SESSION}`)!;
+    expect(session.status).toBe("ACTIVE");
+    expect(session.lastActivityMs).toBe(grown);
+    expect(sent.filter((p) => p.body.includes("No observable activity"))).toHaveLength(0);
   });
 });

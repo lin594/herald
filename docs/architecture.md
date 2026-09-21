@@ -30,14 +30,14 @@ kept intact; everything CBM adds sits behind it and is failure-isolated.
 
 | Piece | Where | Responsibility |
 |---|---|---|
-| Upstream pipeline | `src/server`, `src/core`, `src/formatters`, `src/providers` | Receive hook events, format per-agent notifications, cooldown/session policies, Bark/ntfy delivery. Unchanged semantics; CBM hooks in only at two points (policy persistence + hub early-handling). |
+| Upstream pipeline | `src/server`, `src/core`, `src/formatters`, `src/providers` | Receive hook events, format per-agent notifications, cooldown/session policies, Bark/ntfy delivery. Unchanged semantics; CBM touches it at three points: policy persistence, hub early-handling, and the shared content-safety helpers on every provider send. |
 | MonitorHub | `src/monitor/hub.ts` | Ingests every event into the durable model: hook state, cooperative `emit`, host heartbeats, observations. Never blocks the notify path — failures are logged and swallowed. |
 | MonitorScheduler | `src/monitor/scheduler.ts` | Owns time: 15 s tick, per-session `evaluateSessionTick` (pure), host up/down transitions, wake re-baseline, workspace/transcript sweeps. |
 | State machine | `src/monitor/statemachine.ts` | UNKNOWN/STARTED/ACTIVE/QUIET/WAITING_USER/BLOCKED/FAILED/COMPLETED + HOST_AVAILABLE/HOST_UNREACHABLE (separate axis: host loss is never agent failure). |
-| MonitorNotifier | `src/monitor/notifier.ts` | The single exit for monitor-originated notifications: redact → cap → fingerprint dedup → heartbeat rate limit → provider. |
+| MonitorNotifier | `src/monitor/notifier.ts` | The single exit for monitor-originated notifications: redact → cap → fingerprint dedup → heartbeat rate limit → provider. The upstream formatted path applies the same `safeTitle`/`safeBody` (`src/monitor/redact.ts`) before its own `provider.send`. |
 | Store | `src/monitor/store.ts`, `db.ts` | SQLite (`node:sqlite`) on named volume: sessions, events, notifications (restart-safe suppression), host heartbeats, fingerprint table. Also backs upstream cooldown/turn policies via injected `persist`. |
-| Observers | `src/monitor/observers.ts` | Container-side, strictly read-only: transcript growth, workspace mtime walk, `git status/diff --shortstat` (never add/commit/reset), artifact glob match. |
-| Host Bridge | `host/cbm-host.mjs` | Thin macOS facts collector (LaunchAgent): process presence, active rollout UUIDs, sleep-gap. No policy, no notification decisions. |
+| Observers | `src/monitor/observers.ts` | Container-side, strictly read-only: transcript growth (Codex `sessions/YYYY/MM/DD` and Qoder `projects/<slug>/<id>.jsonl`), workspace mtime walk, `git status/diff --shortstat` (never add/commit/reset), artifact glob match. |
+| Host Bridge | `host/cbm-host.mjs` | Thin macOS facts collector (LaunchAgent): process presence, active rollout/session UUIDs (Codex `sessions/` and Qoder `projects/<slug>/`), sleep-gap. No policy, no notification decisions. The Qoder desktop binary is a resident marker — only its transcripts and its CLI process count as work. |
 
 ## Data flow invariants
 
@@ -59,6 +59,9 @@ kept intact; everything CBM adds sits behind it and is failure-isolated.
 
 - New agent: adapter POSTs `{agent, raw}` to `/events`; hub keys sessions by
   `token:session_id`. Agent types are additive (`src/core/incoming-event.ts`).
+  Qoder is the worked example: one formatter, one adapter, one enum value, and
+  the existing `CodexSessionPolicy` (same turn/task semantics) — no new route,
+  store, or scheduler path.
 - New provider: implement `NotificationProvider`; both pipelines use it.
-- Qoder/Claude Code/workers: same emit contract — no CBM-side code needed
-  beyond an adapter script.
+- Claude Code/CI workers: the cooperative `emit` contract needs no CBM-side code
+  at all — a single `curl` is a complete integration.

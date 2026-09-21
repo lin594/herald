@@ -32,3 +32,22 @@ export function looksLikeSecretDump(value: string): boolean {
   const matches = value.match(/\[REDACTED\]/g)?.length ?? 0;
   return matches >= 3;
 }
+
+/** A body that redaction turned into a wall of markers is not worth sending. */
+export const SUPPRESSED_BODY = "(content suppressed: looks like secret material)";
+
+/**
+ * Redact then cap. Every string that leaves for a push channel goes through
+ * here: a Bark notification shows up on a locked phone and is archived by the
+ * provider, so neither a secret nor an unbounded dump may survive this step.
+ */
+export function safeBody(value: string, maxChars: number): string {
+  const redacted = redactText(value);
+  return looksLikeSecretDump(redacted)
+    ? SUPPRESSED_BODY
+    : limitBody(redacted, maxChars);
+}
+
+export function safeTitle(value: string): string {
+  return limitBody(redactText(value), 120);
+}
