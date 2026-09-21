@@ -1,6 +1,6 @@
 # Implementation Summary
 
-Fork of `LetTTGACO/agent-notify` extended into **Codex Bark Monitor (CBM)**:
+Fork of `LetTTGACO/agent-notify` extended into **Herald**:
 a long-lived local monitor for hours-long AI-agent tasks that pushes only
 state changes that matter to iPhone via Bark. Deliberately NOT a rewrite —
 upstream notify/format/cooldown machinery is kept and reused.
@@ -64,7 +64,7 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
   on the current Qoder session(s).
 
 **Tooling**
-- `./cbm` wrapper (up/down/logs/test/doctor/emit/status/sessions/install-host/
+- `./herald` wrapper (up/down/logs/test/doctor/emit/status/sessions/install-host/
   uninstall-host), `pnpm test`/`typecheck` clean, mock-Bark end-to-end smoke:
   emit → phone payload with correct title/level/group.
 
@@ -74,17 +74,17 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
   trust (verified schema/merge only; cannot be automated).
 - **Process detection heuristics**: basename allow-list + resident markers —
   new agent distributions may need a marker added (troubleshooting §"stuck ACTIVE").
-- **Session↔workspace matching**: via project name / `CBM_PROJECT_MAP`;
+- **Session↔workspace matching**: via project name / `HERALD_PROJECT_MAP`;
   multi-session-per-repo attribution is coarse by design.
-- **Transcript growth channel** works only when `CBM_TRANSCRIPT_DIR` (Codex) /
-  `CBM_QODER_DIR` (Qoder) + their read-only mounts are configured (off by default).
+- **Transcript growth channel** works only when `HERALD_TRANSCRIPT_DIR` (Codex) /
+  `HERALD_QODER_DIR` (Qoder) + their read-only mounts are configured (off by default).
 - **Subagent/rapid-loop debouncing**: relies on upstream cooldown policy rather
-  than a CBM-specific mechanism.
+  than a Herald-specific mechanism.
 - **Qoder hook E2E**: installer, adapter, formatter and policy are covered by
   tests; a real phone notification additionally needs one Qoder restart (no
   config hot-reload) and the `~/.qoder/projects` mount.
 - Claude Code / generic workers: emit-capable through the documented contract,
-  no CBM-side installer (upstream ships its own adapters).
+  no Herald-side installer (upstream ships its own adapters).
 
 ## NOT_IMPLEMENTED (deliberate)
 
@@ -100,8 +100,8 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 |---|---|
 | Server wiring | `src/server/index.ts`, `src/server/app.ts` |
 | Monitor core | `src/monitor/{statemachine,scheduler,notifier,hub,store,db,config,observers,redact,types}.ts` |
-| Host bridge | `host/{cbm-host.mjs,hooks-merge.mjs,install-host.mjs,uninstall-host.mjs}`, `deploy/host/*.plist.template` |
+| Host bridge | `host/{herald-host.mjs,hooks-merge.mjs,install-host.mjs,uninstall-host.mjs}`, `deploy/host/*.plist.template` |
 | Agent adapters | `examples/codex/codex-agent-notify.mjs`, `examples/qoder/qoder-agent-notify.mjs`, `src/formatters/{codex,qoder}.ts` |
-| Deploy | `deploy/docker/{docker-compose.yml,docker-compose.override.example.yml,Dockerfile}`, `.env.example`, `cbm` |
+| Deploy | `deploy/docker/{docker-compose.yml,docker-compose.override.example.yml,Dockerfile}`, `.env.example`, `herald` |
 | Tests | `tests/monitor/*`, `tests/host/*` (incl. `hooks-merge`), `tests/integration/stack.test.ts` (A/B/C/C-qoder/D/E/G/H/I), upstream suites extended in place for the qoder envelope/policy and content-safety assertions |
 | Docs | `docs/{environment-findings,upstream-gap-analysis,architecture,agent-integration,notification-policy,troubleshooting}.md` |

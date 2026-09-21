@@ -24,7 +24,7 @@ Read verdicts below come from reading `src/server/*`, `src/formatters/codex.ts`,
 | Cooperative emit events | absent (only hook-shaped agent events; test CLI posts a fake opencode event) | **ADD** | extend `incomingEvent` enum with `emit` agent type: `{type: started|milestone|waiting|blocked|failed|completed|heartbeat…}`; CLI `agent-notify emit <type> "<msg>"`. |
 | Heartbeat (adaptive 15/30/10/25) | absent | **ADD** | scheduler in server process, env-configurable seconds for tests. |
 | Quiet / stall / resume | absent | **ADD** | multi-factor activity: hooks + transcript growth + host observations + fs/git watcher results. |
-| Host process/session observation | absent | **ADD** | thin host bridge (`host/cbm-host.mjs`) POSTs `/observations` (facts only) + `/host-heartbeat` (30s). |
+| Host process/session observation | absent | **ADD** | thin host bridge (`host/herald-host.mjs`) POSTs `/observations` (facts only) + `/host-heartbeat` (30s). |
 | Sleep/wake awareness | absent | **ADD** | bridge detects heartbeat gaps; monitor maps gap>threshold to HOST_UNREACHABLE, never agent stall; no notification replay on resume. |
 | Workspace / Git / artifact watcher | absent | **ADD** | in-container, read-only bind mounts only, 30–60s cadence, `git` via read-only subcommands (`status --porcelain`, `diff --shortstat`) with cache; artifact glob patterns. |
 | Subagent / rapid-event suppression | cooldown partially covers | **MODIFY** | debounce + parent-session rollup per claude-code-notify-watch ideas. |

@@ -2,13 +2,13 @@
 
 Two channels, both landing on the same server — never talk to Bark directly.
 
-1. **Passive (hooks)** — automatic, already wired for Codex and Qoder by `./cbm install-host`.
+1. **Passive (hooks)** — automatic, already wired for Codex and Qoder by `./herald install-host`.
 2. **Cooperative (`emit`)** — the agent tells the monitor what stage it is at.
    Highest-signal channel; any agent or worker can use it with one HTTP call.
 
 ## Codex (verified on 0.153.4, macOS)
 
-`./cbm install-host` does everything: writes `~/.config/agent-notify/{host,codex}.json`,
+`./herald install-host` does everything: writes `~/.config/agent-notify/{host,codex}.json`,
 merges the adapter into `~/.codex/hooks.json` (`Stop`, `UserPromptSubmit`,
 `PermissionRequest`), and installs the Host Bridge LaunchAgent.
 
@@ -21,9 +21,9 @@ as a fallback; hooks are preferred and both can coexist (server-side dedup).
 
 ## Qoder (IDE and CLI, same hook contract)
 
-`./cbm install-host` writes `~/.config/agent-notify/qoder.json` and merges the
+`./herald install-host` writes `~/.config/agent-notify/qoder.json` and merges the
 adapter into the `hooks` key of `~/.qoder/settings.json`, leaving every other
-setting untouched (backed up first, idempotent). `./cbm uninstall-host --all`
+setting untouched (backed up first, idempotent). `./herald uninstall-host --all`
 removes exactly those entries again.
 
 Unlike Codex there is **no trust prompt**, but also **no hot reload**: restart
@@ -37,7 +37,7 @@ To wire it by hand instead of using the installer:
   "hooks": {
     "PermissionRequest": [
       { "hooks": [{ "type": "command",
-        "command": "node /path/to/codex-bark-monitor/examples/qoder/qoder-agent-notify.mjs",
+        "command": "node /path/to/herald/examples/qoder/qoder-agent-notify.mjs",
         "timeout": 5 }] }
     ]
   }
@@ -64,7 +64,7 @@ events (`PreToolUse`, `PostToolUse`, `SubagentStart`, `PreCompact`,
 The desktop app lives for hours, so `ps` says nothing about whether a session is
 working. The Host Bridge instead watches `~/.qoder/projects/<slug>/<uuid>.jsonl`
 mtimes and reports the uuid as an observed session; the container mirrors that
-with `CBM_HOST_QODER_PROJECTS_DIR` + `CBM_QODER_DIR` (read-only). Without the
+with `HERALD_HOST_QODER_PROJECTS_DIR` + `HERALD_QODER_DIR` (read-only). Without the
 mount, hook events alone still drive every state above.
 
 ## Cooperative emit (any agent: Codex, Qoder, Claude Code, CI workers)
@@ -79,8 +79,8 @@ curl -sS http://127.0.0.1:8787/events \
         "project":"my-repo", "session_id":"job-42", "hostname":"mac" }}'
 ```
 
-Or from a shell inside the container: `./cbm emit <type> "<message>"`
-(env: `CBM_EMIT_PROJECT`, `CBM_EMIT_SESSION`, `CBM_EMIT_AGENT`, `CBM_EMIT_CWD`).
+Or from a shell inside the container: `./herald emit <type> "<message>"`
+(env: `HERALD_EMIT_PROJECT`, `HERALD_EMIT_SESSION`, `HERALD_EMIT_AGENT`, `HERALD_EMIT_CWD`).
 
 | type | meaning | session state | phone level |
 |---|---|---|---|
@@ -102,7 +102,7 @@ Rules for agents:
 ## Suggested instructions block for an agent's AGENTS.md / system prompt
 
 ```
-You are monitored by Codex Bark Monitor. Report ONLY state changes via:
+You are monitored by Herald. Report ONLY state changes via:
   POST http://127.0.0.1:8787/events  (Bearer token in $AGENT_NOTIFY_TOKEN value)
   body {"agent":"emit","raw":{"type":"…","message":"…","project":"<repo>","session_id":"<task id>"}}
 Use started/milestone/waiting/blocked/failed/completed. Never notify for
@@ -114,4 +114,4 @@ routine progress. When you need user input, emit "waiting" BEFORE stopping.
 
 Upstream mute switches (`/agent-notify` session/timed/persistent mute) still
 apply to hook-origin notifications. Monitor-side silence: emit nothing, or
-`CBM_ENABLED=false` + restart for total monitor quiet.
+`HERALD_ENABLED=false` + restart for total monitor quiet.

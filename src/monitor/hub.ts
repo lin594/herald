@@ -113,7 +113,7 @@ export class MonitorHub {
     } catch (error) {
       // Failure isolation: monitoring must never break the notify pipeline.
       console.error(
-        "[cbm] hub ingest failed:",
+        "[herald] hub ingest failed:",
         error instanceof Error ? error.message : String(error),
       );
       return null;

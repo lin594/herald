@@ -40,7 +40,7 @@ export interface MonitorConfig {
 function parseWorkspaces(value: string | undefined): WorkspaceConfig[] {
   if (!value?.trim()) return [];
   const parsed = JSON.parse(value);
-  if (!Array.isArray(parsed)) throw new Error("CBM_WORKSPACES must be a JSON array");
+  if (!Array.isArray(parsed)) throw new Error("HERALD_WORKSPACES must be a JSON array");
   return parsed.map((item) => workspaceSchema.parse(item));
 }
 
@@ -58,22 +58,22 @@ function parseProjectMap(value: string | undefined): Record<string, string> {
 
 export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
   return {
-    enabled: (env.CBM_ENABLED ?? "true") !== "false",
-    dbPath: env.CBM_DB_PATH ?? "./data/monitor.sqlite3",
-    tickSeconds: Number(env.CBM_TICK_SECONDS ?? 15),
-    heartbeatFirstSeconds: Number(env.CBM_HEARTBEAT_FIRST_SECONDS ?? 900),
-    heartbeatNormalSeconds: Number(env.CBM_HEARTBEAT_NORMAL_SECONDS ?? 1800),
-    quietSeconds: Number(env.CBM_QUIET_SECONDS ?? 600),
-    stallSeconds: Number(env.CBM_STALL_SECONDS ?? 1500),
-    heartbeatMaxPerHour: Number(env.CBM_HEARTBEAT_MAX_PER_HOUR ?? 3),
-    hostHeartbeatTimeoutSeconds: Number(env.CBM_HOST_HEARTBEAT_TIMEOUT_SECONDS ?? 180),
-    watchIntervalSeconds: Number(env.CBM_WATCH_INTERVAL_SECONDS ?? 30),
-    gitScanIntervalSeconds: Number(env.CBM_GIT_SCAN_INTERVAL_SECONDS ?? 60),
-    scanMaxFiles: Number(env.CBM_SCAN_MAX_FILES ?? 5000),
-    maxBodyChars: Number(env.CBM_MAX_BODY_CHARS ?? 1200),
-    transcriptDir: env.CBM_TRANSCRIPT_DIR?.trim() || null,
-    qoderDir: env.CBM_QODER_DIR?.trim() || null,
-    workspaces: parseWorkspaces(env.CBM_WORKSPACES),
-    projectMap: parseProjectMap(env.CBM_PROJECT_MAP),
+    enabled: (env.HERALD_ENABLED ?? "true") !== "false",
+    dbPath: env.HERALD_DB_PATH ?? "./data/monitor.sqlite3",
+    tickSeconds: Number(env.HERALD_TICK_SECONDS ?? 15),
+    heartbeatFirstSeconds: Number(env.HERALD_HEARTBEAT_FIRST_SECONDS ?? 900),
+    heartbeatNormalSeconds: Number(env.HERALD_HEARTBEAT_NORMAL_SECONDS ?? 1800),
+    quietSeconds: Number(env.HERALD_QUIET_SECONDS ?? 600),
+    stallSeconds: Number(env.HERALD_STALL_SECONDS ?? 1500),
+    heartbeatMaxPerHour: Number(env.HERALD_HEARTBEAT_MAX_PER_HOUR ?? 3),
+    hostHeartbeatTimeoutSeconds: Number(env.HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS ?? 180),
+    watchIntervalSeconds: Number(env.HERALD_WATCH_INTERVAL_SECONDS ?? 30),
+    gitScanIntervalSeconds: Number(env.HERALD_GIT_SCAN_INTERVAL_SECONDS ?? 60),
+    scanMaxFiles: Number(env.HERALD_SCAN_MAX_FILES ?? 5000),
+    maxBodyChars: Number(env.HERALD_MAX_BODY_CHARS ?? 1200),
+    transcriptDir: env.HERALD_TRANSCRIPT_DIR?.trim() || null,
+    qoderDir: env.HERALD_QODER_DIR?.trim() || null,
+    workspaces: parseWorkspaces(env.HERALD_WORKSPACES),
+    projectMap: parseProjectMap(env.HERALD_PROJECT_MAP),
   };
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Codex Bark Monitor wrapper: one entry point for the containerized stack.
+# Herald wrapper: one entry point for the containerized stack.
 # All docker compose calls run from the repo root with the repo .env, so
-# interpolation (BARK_ENDPOINT, tokens, CBM_*) resolves consistently.
+# interpolation (BARK_ENDPOINT, tokens, HERALD_*) resolves consistently.
 set -euo pipefail
 cd "$(dirname "$0")"
 

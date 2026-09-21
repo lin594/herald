@@ -16,8 +16,8 @@ const UUID = "0f6f9a5a-2f1c-4b17-9a3d-1c2b3a4f5e6d";
 
 describe("workspace observers", () => {
   const stamp = Date.now();
-  const root = join(tmpdir(), `cbm-ws-${stamp}`, "ws");
-  const repo = join(tmpdir(), `cbm-ws-${stamp}`, "gitrepo");
+  const root = join(tmpdir(), `herald-ws-${stamp}`, "ws");
+  const repo = join(tmpdir(), `herald-ws-${stamp}`, "gitrepo");
 
   beforeAll(() => {
     mkdirSync(join(root, "src"), { recursive: true });
@@ -94,7 +94,7 @@ describe("workspace observers", () => {
   });
 
   it("indexes rollout transcripts under nested YYYY/MM/DD", async () => {
-    const sessionsRoot = join(root, "..", `cbm-sessions-${Date.now()}`);
+    const sessionsRoot = join(root, "..", `herald-sessions-${Date.now()}`);
     const day = join(sessionsRoot, "2026", "09", "20");
     mkdirSync(day, { recursive: true });
     writeFileSync(join(day, `rollout-2026-09-20T10-00-00-${UUID}.jsonl`), "{}\n");
@@ -107,7 +107,7 @@ describe("workspace observers", () => {
   });
 
   it("indexes Qoder transcripts as <project-slug>/<session-id>.jsonl", async () => {
-    const qoderRoot = join(root, "..", `cbm-qoder-${Date.now()}`);
+    const qoderRoot = join(root, "..", `herald-qoder-${Date.now()}`);
     const project = join(qoderRoot, "-Users-me-workspace-lin594-my-repo");
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, `${UUID}.jsonl`), "{}\n");

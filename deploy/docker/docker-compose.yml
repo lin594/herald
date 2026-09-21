@@ -1,4 +1,4 @@
-name: codex-bark-monitor
+name: herald
 services:
   agent-notify:
     build:
@@ -25,37 +25,37 @@ services:
       AGENT_NOTIFY_COOLDOWN_SECONDS: "${AGENT_NOTIFY_COOLDOWN_SECONDS:-60}"
       AGENT_NOTIFY_LOG_PATH: "/data/events.jsonl"
       AGENT_NOTIFY_LOG_RAW: "${AGENT_NOTIFY_LOG_RAW:-false}"
-      # ── Codex Bark Monitor (CBM) ──
-      CBM_ENABLED: "${CBM_ENABLED:-true}"
-      CBM_DB_PATH: "/data/monitor.sqlite3"
-      CBM_TICK_SECONDS: "${CBM_TICK_SECONDS:-15}"
-      CBM_HEARTBEAT_FIRST_SECONDS: "${CBM_HEARTBEAT_FIRST_SECONDS:-900}"
-      CBM_HEARTBEAT_NORMAL_SECONDS: "${CBM_HEARTBEAT_NORMAL_SECONDS:-1800}"
-      CBM_QUIET_SECONDS: "${CBM_QUIET_SECONDS:-600}"
-      CBM_STALL_SECONDS: "${CBM_STALL_SECONDS:-1500}"
-      CBM_HEARTBEAT_MAX_PER_HOUR: "${CBM_HEARTBEAT_MAX_PER_HOUR:-3}"
-      CBM_HOST_HEARTBEAT_TIMEOUT_SECONDS: "${CBM_HOST_HEARTBEAT_TIMEOUT_SECONDS:-180}"
-      CBM_WATCH_INTERVAL_SECONDS: "${CBM_WATCH_INTERVAL_SECONDS:-30}"
-      CBM_GIT_SCAN_INTERVAL_SECONDS: "${CBM_GIT_SCAN_INTERVAL_SECONDS:-60}"
-      CBM_SCAN_MAX_FILES: "${CBM_SCAN_MAX_FILES:-5000}"
-      CBM_MAX_BODY_CHARS: "${CBM_MAX_BODY_CHARS:-1200}"
-      CBM_TRANSCRIPT_DIR: "${CBM_TRANSCRIPT_DIR:-}"
-      CBM_QODER_DIR: "${CBM_QODER_DIR:-}"
-      CBM_WORKSPACES: "${CBM_WORKSPACES:-}"
-      CBM_PROJECT_MAP: "${CBM_PROJECT_MAP:-}"
+      # ── Herald ──
+      HERALD_ENABLED: "${HERALD_ENABLED:-true}"
+      HERALD_DB_PATH: "/data/monitor.sqlite3"
+      HERALD_TICK_SECONDS: "${HERALD_TICK_SECONDS:-15}"
+      HERALD_HEARTBEAT_FIRST_SECONDS: "${HERALD_HEARTBEAT_FIRST_SECONDS:-900}"
+      HERALD_HEARTBEAT_NORMAL_SECONDS: "${HERALD_HEARTBEAT_NORMAL_SECONDS:-1800}"
+      HERALD_QUIET_SECONDS: "${HERALD_QUIET_SECONDS:-600}"
+      HERALD_STALL_SECONDS: "${HERALD_STALL_SECONDS:-1500}"
+      HERALD_HEARTBEAT_MAX_PER_HOUR: "${HERALD_HEARTBEAT_MAX_PER_HOUR:-3}"
+      HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS: "${HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS:-180}"
+      HERALD_WATCH_INTERVAL_SECONDS: "${HERALD_WATCH_INTERVAL_SECONDS:-30}"
+      HERALD_GIT_SCAN_INTERVAL_SECONDS: "${HERALD_GIT_SCAN_INTERVAL_SECONDS:-60}"
+      HERALD_SCAN_MAX_FILES: "${HERALD_SCAN_MAX_FILES:-5000}"
+      HERALD_MAX_BODY_CHARS: "${HERALD_MAX_BODY_CHARS:-1200}"
+      HERALD_TRANSCRIPT_DIR: "${HERALD_TRANSCRIPT_DIR:-}"
+      HERALD_QODER_DIR: "${HERALD_QODER_DIR:-}"
+      HERALD_WORKSPACES: "${HERALD_WORKSPACES:-}"
+      HERALD_PROJECT_MAP: "${HERALD_PROJECT_MAP:-}"
     volumes:
       - agent-notify-data:/data
       # Optional read-only host mounts. Unset variables fall back to a local
       # placeholder directory, so the container still starts with no host
       # exposure. NEVER mount ~ or /Users wholesale — one explicit path each.
       # Codex rollout transcripts (activity observation channel):
-      #   CBM_HOST_CODEX_SESSIONS_DIR=~/.codex/sessions  CBM_TRANSCRIPT_DIR=/host/.codex/sessions
-      - "${CBM_HOST_CODEX_SESSIONS_DIR:-./unused-mount}:/host/.codex/sessions:ro"
+      #   HERALD_HOST_CODEX_SESSIONS_DIR=~/.codex/sessions  HERALD_TRANSCRIPT_DIR=/host/.codex/sessions
+      - "${HERALD_HOST_CODEX_SESSIONS_DIR:-./unused-mount}:/host/.codex/sessions:ro"
       # Qoder session transcripts (same channel for the Qoder IDE/CLI):
-      #   CBM_HOST_QODER_PROJECTS_DIR=~/.qoder/projects  CBM_QODER_DIR=/host/.qoder/projects
-      - "${CBM_HOST_QODER_PROJECTS_DIR:-./unused-mount}:/host/.qoder/projects:ro"
+      #   HERALD_HOST_QODER_PROJECTS_DIR=~/.qoder/projects  HERALD_QODER_DIR=/host/.qoder/projects
+      - "${HERALD_HOST_QODER_PROJECTS_DIR:-./unused-mount}:/host/.qoder/projects:ro"
       # Workspace mounts belong in docker-compose.override.yml (merged automatically
-      # by the ./cbm wrapper), one explicit `:ro` bind per watched repository, e.g.
+      # by the ./herald wrapper), one explicit `:ro` bind per watched repository, e.g.
       #   volumes:
       #     agent-notify:
       #       - ~/workspace/lin594/my-repo:/work/my-repo:ro

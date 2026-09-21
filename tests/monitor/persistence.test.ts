@@ -10,7 +10,7 @@ import type { FormattedAgentEvent } from "../../src/core/formatted-event.js";
 import type { IncomingAgentEvent } from "../../src/core/incoming-event.js";
 
 const T0 = 1_700_000_000_000;
-const dir = mkdtempSync(join(tmpdir(), "cbm-db-"));
+const dir = mkdtempSync(join(tmpdir(), "herald-db-"));
 const dbPath = join(dir, "monitor.sqlite3");
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

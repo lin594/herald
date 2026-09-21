@@ -131,7 +131,7 @@ describe("Qoder formatter", () => {
         agent: "qoder",
         raw: {
           hook_event_name: "PermissionRequest",
-          cwd: "/Users/me/workspace/lin594/codex-bark-monitor",
+          cwd: "/Users/me/workspace/lin594/herald",
           tool_name: "Bash",
           tool_input: { command: "pnpm test" },
         },
@@ -140,7 +140,7 @@ describe("Qoder formatter", () => {
     );
 
     expect(formatted.notification.title).toBe(
-      "codex-bark-monitor 需要批准",
+      "herald 需要批准",
     );
   });
 

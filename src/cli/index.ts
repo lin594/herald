@@ -54,7 +54,7 @@ async function postTestEvent(): Promise<void> {
           id: "cli-test-permission",
           sessionID: "cli-test-session",
           action: "bash",
-          resources: ["echo agent-notify test"],
+          resources: ["echo herald test"],
         },
       },
     }),
@@ -83,10 +83,10 @@ async function emit(args: string[]): Promise<void> {
         type,
         message,
         hostname: hostname(),
-        agent_type: process.env.CBM_EMIT_AGENT ?? "generic",
-        ...(process.env.CBM_EMIT_PROJECT ? { project: process.env.CBM_EMIT_PROJECT } : {}),
-        ...(process.env.CBM_EMIT_SESSION ? { session_id: process.env.CBM_EMIT_SESSION } : {}),
-        ...(process.env.CBM_EMIT_CWD ? { cwd: process.env.CBM_EMIT_CWD } : {}),
+        agent_type: process.env.HERALD_EMIT_AGENT ?? "generic",
+        ...(process.env.HERALD_EMIT_PROJECT ? { project: process.env.HERALD_EMIT_PROJECT } : {}),
+        ...(process.env.HERALD_EMIT_SESSION ? { session_id: process.env.HERALD_EMIT_SESSION } : {}),
+        ...(process.env.HERALD_EMIT_CWD ? { cwd: process.env.HERALD_EMIT_CWD } : {}),
       },
     }),
   });
@@ -148,7 +148,7 @@ async function doctor(): Promise<void> {
   if (statusRes?.ok) {
     const status = (await statusRes.json()) as { hosts?: unknown[] };
     if (Array.isArray(status.hosts) && status.hosts.length === 0) {
-      console.log("WARN no host bridge heartbeat yet — run ./cbm install-host on the Mac");
+      console.log("WARN no host bridge heartbeat yet — run ./herald install-host on the Mac");
     }
   }
 }
@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     await getJson("/sessions", true);
     return;
   }
-  console.log("Usage: agent-notify <test|doctor|emit|status|sessions>");
+  console.log("Usage: herald <test|doctor|emit|status|sessions>");
   process.exitCode = 1;
 }
 

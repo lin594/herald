@@ -72,14 +72,14 @@ const server = serve({
 
 console.log(`agent-notify listening on ${config.host}:${config.port}`);
 if (monitorHub) {
-  console.log(`[cbm] monitor enabled (db=${monitorConfig.dbPath})`);
+  console.log(`[herald] monitor enabled (db=${monitorConfig.dbPath})`);
 }
 
 let shuttingDown = false;
 function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[cbm] ${signal}: shutting down`);
+  console.log(`[herald] ${signal}: shutting down`);
   monitorScheduler?.stop();
   server.close(() => {
     db?.close();

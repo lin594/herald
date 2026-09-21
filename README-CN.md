@@ -1,18 +1,42 @@
 <div align="center">
 
-## AgentNotify：AI 编程代理的个人通知中枢
+## Herald：AI 编程代理的状态变化监控
 
 [English](README.md) / 中文
 
 [人类安装手册](docs/human-manual-cn.md)
 
-[![](https://img.shields.io/github/stars/LetTTGACO/agent-notify?labelColor\&style=flat-square\&color=ffcb47)](https://github.com/LetTTGACO/agent-notify)
-[![](https://img.shields.io/github/issues/LetTTGACO/agent-notify?labelColor=black\&style=flat-square\&color=ff80eb)](https://github.com/LetTTGACO/agent-notify/issues)
-[![](https://img.shields.io/github/contributors/LetTTGACO/agent-notify?color=c4f042\&labelColor=black\&style=flat-square)](https://github.com/LetTTGACO/agent-notify/graphs/contributors)
-[![](https://img.shields.io/github/last-commit/LetTTGACO/agent-notify?color=c4f042\&labelColor=black\&style=flat-square)](https://github.com/LetTTGACO/agent-notify/commits/main)
+[![](https://img.shields.io/github/stars/lin594/herald?labelColor\&style=flat-square\&color=ffcb47)](https://github.com/lin594/herald)
+[![](https://img.shields.io/github/issues/lin594/herald?labelColor=black\&style=flat-square\&color=ff80eb)](https://github.com/lin594/herald/issues)
+[![](https://img.shields.io/github/contributors/lin594/herald?color=c4f042\&labelColor=black\&style=flat-square)](https://github.com/lin594/herald/graphs/contributors)
+[![](https://img.shields.io/github/last-commit/lin594/herald?color=c4f042\&labelColor=black\&style=flat-square)](https://github.com/lin594/herald/commits/main)
 
 </div>
 
+
+> **本仓库是 [lin594/herald](https://github.com/lin594/herald)（MIT）的 fork：Herald。**
+> 下面保留的是上游通知管道的原始中文手册；Herald 新增的「长任务状态监控」见下一节，
+> 完整说明在 [README.md](README.md)（英文）与 [docs/notification-policy.md](docs/notification-policy.md)。
+
+## Herald 是什么
+
+你启动一个几小时的任务就走开。两小时后你不知道它是在干活、在等你批准、还是凌晨三点悄悄挂了。
+看板没用，因为你没在看板。
+
+**Herald 盯着这次运行，只在「状态真的变了」时推一条**：等你输入、被卡住、失败、跑完、
+卡住刚开始、卡住已恢复，外加一条限流的「还活着」心跳。其余时间一律安静。
+
+- **两条正交轴**：会话状态与宿主机可达性分开判。笔记本睡眠不会被算成 agent 失败，
+  睡 12 小时也不会变成「停滞 12 小时」。
+- **沉默是默认值**：通知按状态边沿触发，正文指纹去重，指纹表在 SQLite 里，重启不补发。
+- **四路证据**：hook 事件（agent 主动汇报）、会话 transcript 增长、宿主机进程事实、
+  工作区/git 只读观察。任何单一路信号都不足以判定「在干活」。
+- **一轮 ≠ 一个任务**：`Stop` 只代表一轮结束；只有 agent 明确宣告完成任务才算完成。
+- **完全本地**：容器化运行、API 只监听 `127.0.0.1`、只读挂载（绝不整盘挂 `~`）、
+  推送前脱敏、无账号无遥测。
+
+上手：`cp .env.example .env` 填好 `BARK_ENDPOINT` 与 `AGENT_NOTIFY_TOKENS` → `./herald up`
+→ `./herald install-host` → `./herald test`。细节见 [docs/agent-integration.md](docs/agent-integration.md)。
 
 AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务端格式化成简短、行动导向的通知，记录安全的事件摘要，并通过 Bark 或 ntfy 推送到你的手机或桌面。
 
@@ -31,7 +55,8 @@ AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务�
 | --- | --- | --- |
 | OpenCode | plugin 示例 | permission / question / session-error / idle-completion 事件 |
 | Claude Code | command hook + adapter | `UserPromptSubmit`、选定的 `Notification`、`Stop`、`StopFailure` |
-| Codex | command hook + adapter | `UserPromptSubmit`、`Stop`，可选 `PermissionRequest` |
+| Codex | command hook + adapter | `UserPromptSubmit`、`Stop`、`PermissionRequest` |
+| Qoder（IDE + CLI） | command hook + adapter | `UserPromptSubmit`、`Notification`、`Stop`、`StopFailure`、`PermissionRequest` |
 
 Adapter 是 fail-safe 的：服务端错误不会阻塞 agent。长任务完成状态由 AgentNotify 服务端跟踪，因此 adapter 保持无状态。
 

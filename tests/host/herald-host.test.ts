@@ -9,13 +9,13 @@ import {
   scanActiveQoderSessionIds,
   scanActiveSessionIds,
   tickOnce,
-} from "../../host/cbm-host.mjs";
+} from "../../host/herald-host.mjs";
 
 const UUID = "01a0ba70-3d09-73a0-892d-aa43c3a84a2e";
 const QODER_UUID = "62211ad1-730a-4de1-ae17-8ed9c4fd19a4";
 const T0 = Date.now();
 
-describe("cbm-host bridge", () => {
+describe("herald-host bridge", () => {
   it("parses required config and expands ~ paths", () => {
     const config = parseHostConfig({
       serverUrl: "http://127.0.0.1:8787/",
@@ -33,10 +33,10 @@ describe("cbm-host bridge", () => {
     const ps = [
       "  101 node /usr/local/bin/codex",
       "  202 /bin/zsh -c cargo build",
-      "  303 node /repo/host/cbm-host.mjs",
+      "  303 node /repo/host/herald-host.mjs",
       "  404 claude --resume",
       "  505 /System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
-      "  606 node /Users/me/workspace/lin594/codex-bark-monitor/dist/server/index.js",
+      "  606 node /Users/me/workspace/lin594/herald/dist/server/index.js",
       "  707 codex exec fix the bug",
       "  808 node /usr/local/bin/codex -c features.code_mode_host=true app-server --analytics-default-enabled",
       "  909 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/140/Codex Framework Helper (Plugin)",
@@ -55,7 +55,7 @@ describe("cbm-host bridge", () => {
   });
 
   it("finds recently-touched rollout uuids under YYYY/MM/DD", () => {
-    const root = join(tmpdir(), `cbm-sessions-${T0}`);
+    const root = join(tmpdir(), `herald-sessions-${T0}`);
     const day = join(root, "2026", "09", "20");
     const oldDay = join(root, "2026", "08", "01");
     mkdirSync(day, { recursive: true });
@@ -72,7 +72,7 @@ describe("cbm-host bridge", () => {
   });
 
   it("finds recently-touched Qoder session uuids under <project-slug>/", () => {
-    const root = join(tmpdir(), `cbm-qoder-${T0}`);
+    const root = join(tmpdir(), `herald-qoder-${T0}`);
     const project = join(root, "-Users-me-workspace-lin594-my-repo");
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, `${QODER_UUID}.jsonl`), "{}\n");

@@ -74,7 +74,7 @@ describe("Qoder adapter", () => {
   });
 
   it("reads config from <home>/.config/agent-notify/qoder.json", () => {
-    const home = join(tmpdir(), `cbm-qoder-home-${Date.now()}`);
+    const home = join(tmpdir(), `herald-qoder-home-${Date.now()}`);
     mkdirSync(join(home, ".config", "agent-notify"), { recursive: true });
     writeFileSync(
       join(home, ".config", "agent-notify", "qoder.json"),

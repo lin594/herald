@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parseHooksDoc, stripHooks } from "./hooks-merge.mjs";
 
-const LABEL = "com.lin594.cbm-host";
+const LABEL = "com.lin594.herald-host";
 const plistPath = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 
 try {
@@ -19,9 +19,9 @@ try {
   console.log("LaunchAgent was not loaded");
 }
 if (existsSync(plistPath)) {
-  copyFileSync(plistPath, `${plistPath}.cbm-removed`);
+  copyFileSync(plistPath, `${plistPath}.herald-removed`);
   rmSync(plistPath);
-  console.log(`removed ${plistPath} (kept ${plistPath}.cbm-removed)`);
+  console.log(`removed ${plistPath} (kept ${plistPath}.herald-removed)`);
 }
 
 if (process.argv.includes("--all")) {
@@ -39,11 +39,11 @@ if (process.argv.includes("--all")) {
       continue;
     }
     if (stripHooks(doc)) {
-      copyFileSync(hooksPath, `${hooksPath}.cbm-backup-uninstall`);
+      copyFileSync(hooksPath, `${hooksPath}.herald-backup-uninstall`);
       writeFileSync(hooksPath, JSON.stringify(doc, null, 2) + "\n", "utf8");
-      console.log(`removed cbm adapter entries from ${hooksPath}`);
+      console.log(`removed herald adapter entries from ${hooksPath}`);
     } else {
-      console.log(`no cbm adapter entries found in ${hooksPath}`);
+      console.log(`no herald adapter entries found in ${hooksPath}`);
     }
   }
   console.log("config files under ~/.config/agent-notify were kept");

@@ -70,7 +70,7 @@ export class MonitorScheduler {
       await this.tick(nowMs);
     } catch (error) {
       console.error(
-        "[cbm] scheduler tick failed:",
+        "[herald] scheduler tick failed:",
         error instanceof Error ? error.message : String(error),
       );
     } finally {
@@ -116,7 +116,7 @@ export class MonitorScheduler {
           group: agentLabel(session.agentType),
         });
         if (sent) {
-          console.log(`[cbm] notified ${notification.kind} session=${session.key}`);
+          console.log(`[herald] notified ${notification.kind} session=${session.key}`);
         }
       }
     }
@@ -224,7 +224,7 @@ export class MonitorScheduler {
         delta = await observeWorkspace(workspace, state);
       } catch (error) {
         console.error(
-          `[cbm] workspace scan failed for ${workspace.name}:`,
+          `[herald] workspace scan failed for ${workspace.name}:`,
           error instanceof Error ? error.message : String(error),
         );
         continue; // isolation: one workspace failure must not kill others

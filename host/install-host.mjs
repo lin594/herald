@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { ensureHooks, parseHooksDoc } from "./hooks-merge.mjs";
 
-const LABEL = "com.lin594.cbm-host";
+const LABEL = "com.lin594.herald-host";
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 
 function arg(name, fallback) {
@@ -29,8 +29,8 @@ const tokenName = arg("token-name", null);
 
 function backup(path) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  copyFileSync(path, `${path}.cbm-backup-${stamp}`);
-  return `${path}.cbm-backup-${stamp}`;
+  copyFileSync(path, `${path}.herald-backup-${stamp}`);
+  return `${path}.herald-backup-${stamp}`;
 }
 
 function writeJsonWithBackup(path, value, { overwrite }) {
@@ -137,7 +137,7 @@ function writeHooksDoc(path, hooksDoc, events) {
   mkdirSync(dirname(path), { recursive: true });
   if (existsSync(path)) console.log(`backup -> ${backup(path)}`);
   writeFileSync(path, JSON.stringify(hooksDoc, null, 2) + "\n", "utf8");
-  console.log(`updated ${path} (added cbm adapter to ${events.join("/")})`);
+  console.log(`updated ${path} (added herald adapter to ${events.join("/")})`);
 }
 
 const codexEvents = ["UserPromptSubmit", "PermissionRequest", "Stop"];
@@ -189,7 +189,7 @@ const template = readFileSync(
 );
 const plist = template
   .replaceAll("__NODE_PATH__", process.execPath)
-  .replaceAll("__BRIDGE_PATH__", join(REPO, "host", "cbm-host.mjs"))
+  .replaceAll("__BRIDGE_PATH__", join(REPO, "host", "herald-host.mjs"))
   .replaceAll("__LOG_DIR__", logDir);
 if (existsSync(plistPath) && readFileSync(plistPath, "utf8") === plist) {
   console.log(`SKIP LaunchAgent (unchanged): ${plistPath}`);
@@ -211,11 +211,11 @@ if (existsSync(plistPath) && readFileSync(plistPath, "utf8") === plist) {
 
 console.log(`
 Next steps:
-  1. ./cbm up                       (start the container stack)
+  1. ./herald up                       (start the container stack)
   2. Open a codex TUI once and REVIEW-AND-TRUST the new hooks —
      Codex skips untrusted hooks; this is a one-time interactive step.
   3. Restart Qoder — it has no hook trust prompt and no config hot-reload.
      Also mount its transcripts in the container (see .env.example:
-     CBM_HOST_QODER_PROJECTS_DIR + CBM_QODER_DIR), then ./cbm up again.
-  4. ./cbm test && ./cbm emit milestone "cbm install check"
+     HERALD_HOST_QODER_PROJECTS_DIR + HERALD_QODER_DIR), then ./herald up again.
+  4. ./herald test && ./herald emit milestone "herald install check"
   Bridge log: ${join(logDir, "host-bridge.log")}`);

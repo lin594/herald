@@ -117,7 +117,7 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
 
   it("treats a growing Qoder transcript as activity, without a host process", async () => {
     const QODER_SESSION = "62211ad1-730a-4de1-ae17-8ed9c4fd19a4";
-    const dir = join(tmpdir(), `cbm-qoder-scan-${T0}`);
+    const dir = join(tmpdir(), `herald-qoder-scan-${T0}`);
     const project = join(dir, "-Users-me-work-repo");
     mkdirSync(project, { recursive: true });
     const transcript = join(project, `${QODER_SESSION}.jsonl`);

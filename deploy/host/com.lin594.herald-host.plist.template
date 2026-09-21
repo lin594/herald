@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.lin594.cbm-host</string>
+  <string>com.lin594.herald-host</string>
   <key>ProgramArguments</key>
   <array>
     <string>__NODE_PATH__</string>
@@ -19,8 +19,8 @@
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardOutPath</key>
-  <string>__LOG_DIR__/cbm-host.out.log</string>
+  <string>__LOG_DIR__/herald-host.out.log</string>
   <key>StandardErrorPath</key>
-  <string>__LOG_DIR__/cbm-host.err.log</string>
+  <string>__LOG_DIR__/herald-host.err.log</string>
 </dict>
 </plist>

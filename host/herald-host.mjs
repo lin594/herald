@@ -1,4 +1,4 @@
-// cbm-host: thin macOS Host Bridge for codex-bark-monitor.
+// herald-host: thin macOS Host Bridge for Herald.
 // Facts only — no policy. Runs on the host (outside Docker), POSTs to the
 // loopback-published container API. Responsibilities:
 //   1. host heartbeat            -> POST /host-heartbeat
@@ -88,7 +88,7 @@ export function parseProcessList(psOutput) {
     const match = line.match(/^\s*(\d+)\s+(.+)$/);
     if (!match) continue;
     const command = match[2].trim();
-    if (command.includes("cbm-host")) continue; // never count ourselves
+    if (command.includes("herald-host")) continue; // never count ourselves
     if (RESIDENT_MARKERS.some((marker) => command.includes(marker))) continue;
     const tokens = command.split(/\s+/);
     const basename = (token) => (token.split("/").pop() ?? "").toLowerCase();
@@ -277,7 +277,7 @@ async function main() {
   try {
     config = readHostConfig();
   } catch (error) {
-    console.error("cbm-host: bad config:", error instanceof Error ? error.message : error);
+    console.error("herald-host: bad config:", error instanceof Error ? error.message : error);
     process.exitCode = 1;
     return;
   }

@@ -12,8 +12,8 @@ import { parseMonitorConfig, type MonitorConfig } from "../../src/monitor/config
 import type { NotificationPayload, NotificationResult } from "../../src/providers/types.js";
 
 const config: MonitorConfig = parseMonitorConfig({
-  CBM_DB_PATH: ":memory:",
-  CBM_PROJECT_MAP: "/work/repo-a=Repo A",
+  HERALD_DB_PATH: ":memory:",
+  HERALD_PROJECT_MAP: "/work/repo-a=Repo A",
 });
 
 function harness(dbPath = ":memory:") {
@@ -73,7 +73,7 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
       const res = await h.app.request(path, { method });
       expect(res.status, `${method} ${path}`).toBe(401);
     }
-    // /status is the unauthenticated local overview used by ./cbm doctor.
+    // /status is the unauthenticated local overview used by ./herald doctor.
     expect((await h.app.request("/status")).ok).toBe(true);
   });
 
@@ -270,7 +270,7 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
   });
 
   it("G: state, dedup and heartbeat counters survive a restart, no replay", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cbm-int-"));
+    const dir = mkdtempSync(join(tmpdir(), "herald-int-"));
     const file = join(dir, "monitor.sqlite3");
     const a = harness(file);
     const emitWaiting = {
