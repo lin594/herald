@@ -145,17 +145,21 @@ export function evaluateSessionTick(
       // resumed from quiet — one low-priority notification per episode
       result.updates.status = "ACTIVE";
       result.updates.lastActivityMs = nowMs;
-      result.notifications.push({
-        kind: "resumed",
-        level: "passive",
-        title: titleFor(session, "resumed", config.language),
-        body: [
-          config.language === "zh"
-            ? `恢复活动（已静默 ${formatDuration(idleMs, "zh")}）`
-            : `Activity resumed after ${formatElapsed(idleMs)}.`,
-          ...contextLines(session, config.language),
-        ].join("\n"),
-      });
+      // A re-baselined clock (wake, restart) can make the quiet episode younger
+      // than the threshold; the user never saw it go quiet, so say nothing.
+      if (idleMs / 1000 >= config.quietSeconds) {
+        result.notifications.push({
+          kind: "resumed",
+          level: "passive",
+          title: titleFor(session, "resumed", config.language),
+          body: [
+            config.language === "zh"
+              ? `恢复活动（已静默 ${formatDuration(idleMs, "zh")}）`
+              : `Activity resumed after ${formatElapsed(idleMs)}.`,
+            ...contextLines(session, config.language),
+          ].join("\n"),
+        });
+      }
       result.clearedDedupKinds.push("possible_stall", "resumed");
     } else {
       result.updates.lastActivityMs = nowMs;

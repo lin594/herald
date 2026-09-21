@@ -103,6 +103,19 @@ describe("evaluateSessionTick", () => {
     expect(result.clearedDedupKinds).toContain("possible_stall");
   });
 
+  it("a re-baselined quiet episode resumes without a notification", () => {
+    // Wake and restart set lastActivityMs = now together with status = QUIET, so
+    // the next tick sees activity right away; "quiet for 0 min" would be noise.
+    const result = evaluateSessionTick(
+      { session: session({ status: "QUIET", lastActivityMs: T0 - 20_000 }), hostAvailable: true, processActive: false, transcriptActive: true },
+      config,
+      T0,
+    );
+    expect(result.updates.status).toBe("ACTIVE");
+    expect(result.notifications).toHaveLength(0);
+    expect(result.clearedDedupKinds).toContain("resumed");
+  });
+
   it("STARTED becomes ACTIVE on first observed activity", () => {
     const result = evaluateSessionTick(
       { session: session({ status: "STARTED" }), hostAvailable: true, processActive: true, transcriptActive: false },

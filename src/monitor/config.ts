@@ -36,7 +36,7 @@ export interface MonitorConfig {
   transcriptDir: string | null; // container path, read-only mount of ~/.codex/sessions
   qoderDir: string | null; // container path, read-only mount of ~/.qoder/projects
   workspaces: WorkspaceConfig[];
-  projectMap: Record<string, string>; // workspace/host path -> project name
+  projectMap: Record<string, string>; // workspace/host path (or dir name) -> project name
 }
 
 function parseWorkspaces(value: string | undefined): WorkspaceConfig[] {
@@ -58,7 +58,23 @@ function parseProjectMap(value: string | undefined): Record<string, string> {
   return out;
 }
 
+function withWorkspaceProjects(
+  workspaces: WorkspaceConfig[],
+  explicit: Record<string, string>,
+): Record<string, string> {
+  // A hook payload often carries only the cwd basename, so both the container
+  // path and the workspace name are valid keys. HERALD_PROJECT_MAP wins.
+  const out: Record<string, string> = {};
+  for (const workspace of workspaces) {
+    const name = workspace.project ?? workspace.name;
+    out[workspace.path] = name;
+    out[workspace.name] = name;
+  }
+  return { ...out, ...explicit };
+}
+
 export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
+  const workspaces = parseWorkspaces(env.HERALD_WORKSPACES);
   return {
     enabled: (env.HERALD_ENABLED ?? "true") !== "false",
     dbPath: env.HERALD_DB_PATH ?? "./data/monitor.sqlite3",
@@ -76,7 +92,7 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     language: env.AGENT_NOTIFY_LANGUAGE === "zh" ? "zh" : "en",
     transcriptDir: env.HERALD_TRANSCRIPT_DIR?.trim() || null,
     qoderDir: env.HERALD_QODER_DIR?.trim() || null,
-    workspaces: parseWorkspaces(env.HERALD_WORKSPACES),
-    projectMap: parseProjectMap(env.HERALD_PROJECT_MAP),
+    workspaces,
+    projectMap: withWorkspaceProjects(workspaces, parseProjectMap(env.HERALD_PROJECT_MAP)),
   };
 }
