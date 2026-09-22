@@ -36,21 +36,12 @@ export function formatElapsed(ms: number): string {
   return formatDuration(ms, "en");
 }
 
-/** Quantitative context shared by every monitor-originated push body. */
-function contextLines(
+/** Stage/artifact lines, appended to every monitor push that has them. */
+function detailLines(
   session: SessionRecord,
   language: NotificationLanguage,
 ): string[] {
   const lines: string[] = [];
-  const digest = digestLine(
-    {
-      changedFiles: session.changedFiles,
-      insertions: session.insertions,
-      deletions: session.deletions,
-    },
-    language,
-  );
-  if (digest) lines.push(digest);
   if (session.lastStage) {
     lines.push(
       `${language === "zh" ? "阶段" : "Stage"}: ${session.lastStage}`,
@@ -64,16 +55,43 @@ function contextLines(
   return lines;
 }
 
+/** Quantitative diffstat plus stage/artifacts, for pushes without a clock. */
+function contextLines(
+  session: SessionRecord,
+  language: NotificationLanguage,
+): string[] {
+  const lines = detailLines(session, language);
+  const digest = digestLine(
+    {
+      changedFiles: session.changedFiles,
+      insertions: session.insertions,
+      deletions: session.deletions,
+    },
+    language,
+  );
+  return digest ? [digest, ...lines] : lines;
+}
+
 function heartbeatBody(
   session: SessionRecord,
   nowMs: number,
   language: NotificationLanguage,
 ): string {
-  const head =
-    language === "zh"
-      ? `已跑 ${formatDuration(nowMs - session.startedAtMs, language)} · 最近动作在${formatDuration(nowMs - session.lastActivityMs, language)}前`
-      : `Running ${formatElapsed(nowMs - session.startedAtMs)}\nLast activity ${formatElapsed(nowMs - session.lastActivityMs)} ago`;
-  return [head, ...contextLines(session, language)].join("\n");
+  // "本轮" is the turn in flight; a session between turns has no turn to
+  // report, so only the task clock shows.
+  const head = digestLine(
+    {
+      turnMs: session.turnStartedMs == null ? null : nowMs - session.turnStartedMs,
+      runningMs: nowMs - session.startedAtMs,
+      idleMs: nowMs - session.lastActivityMs,
+      changedFiles: session.changedFiles,
+      insertions: session.insertions,
+      deletions: session.deletions,
+    },
+    language,
+  );
+  const details = detailLines(session, language);
+  return (head ? [head, ...details] : details).join("\n");
 }
 
 /** Display name used for notification titles and Bark group filtering. */

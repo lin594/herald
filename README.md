@@ -26,7 +26,7 @@ stays silent.
 ```
 Codex · herald · Need Input
 Run the sessions table migration
-running 1h 12m · 44 files changed +1208 −15
+this turn 12 min · task running 1h 12m · 44 files changed +1208 −15
 
 Codex · herald · Possible Stall
 No observable activity for 25 min.
@@ -34,9 +34,10 @@ No observable activity for 25 min.
 ```
 
 Every push reads `Agent · Project · State`, then the shortest body that answers
-"what do I need to do?" and one line of context — how long it has been running
-and what it has changed. `AGENT_NOTIFY_LANGUAGE=zh` renders the same pushes in
-Chinese; an unnamed workspace is shown as `session 1a2b3c4d`, never as a bare hash.
+"what do I need to do?" and one line of context — how long this turn took, how
+long the task has been running, and what it has changed. `AGENT_NOTIFY_LANGUAGE=zh`
+renders the same pushes in Chinese; an unnamed workspace is shown as
+`session 1a2b3c4d`, never as a bare hash.
 
 - **Two independent axes.** Session state and host availability are tracked
   separately, so a sleeping laptop is never reported as a failed agent, and a

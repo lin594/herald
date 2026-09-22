@@ -24,6 +24,7 @@ function rowToSession(row: Row | undefined): SessionRecord | undefined {
     updatedAtMs: Number(row.updated_at_ms),
     lastActivityMs: Number(row.last_activity_ms),
     turnStartedMs: row.turn_started_ms == null ? null : Number(row.turn_started_ms),
+    lastTurnMs: row.last_turn_ms == null ? null : Number(row.last_turn_ms),
     lastHeartbeatMs: row.last_heartbeat_ms == null ? null : Number(row.last_heartbeat_ms),
     lastStage: (row.last_stage as string) ?? null,
     lastMessage: (row.last_message as string) ?? null,
@@ -111,6 +112,7 @@ export class MonitorStore {
       lastActivityMs: number | null;
       updatedAtMs: number | null;
       turnStartedMs: number | null;
+      lastTurnMs: number | null;
       lastHeartbeatMs: number | null;
       lastStage: string | null;
       lastMessage: string | null;
@@ -125,6 +127,7 @@ export class MonitorStore {
       lastActivityMs: "last_activity_ms",
       updatedAtMs: "updated_at_ms",
       turnStartedMs: "turn_started_ms",
+      lastTurnMs: "last_turn_ms",
       lastHeartbeatMs: "last_heartbeat_ms",
       lastStage: "last_stage",
       lastMessage: "last_message",

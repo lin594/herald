@@ -251,7 +251,8 @@ describe("MonitorHub notification text", () => {
     );
     // nothing observed yet: no elapsed clock, no diff
     expect(hub.digestFor("macbook", "sess-d", T0 + 1000)).toBeUndefined();
-    expect(hub.digestFor("macbook", "sess-d", T0 + 3_720_000)).toBe("running 1h 2m");
+    // the turn in flight *is* the whole task here, so only the task clock shows
+    expect(hub.digestFor("macbook", "sess-d", T0 + 3_720_000)).toBe("task running 1h 2m");
 
     store.updateSession("macbook:sess-d", {
       changedFiles: 4,
@@ -259,7 +260,30 @@ describe("MonitorHub notification text", () => {
       deletions: 1,
     });
     expect(hub.digestFor("macbook", "sess-d", T0 + 3_720_000)).toBe(
-      "running 1h 2m · 4 files changed +9 −1",
+      "task running 1h 2m · 4 files changed +9 −1",
+    );
+  });
+
+  it("reports the turn a Stop just closed, beside the task clock", async () => {
+    const { store, hub } = fixture();
+    const promptAt = T0 + 2 * 3_600_000;
+    const stopAt = promptAt + 12 * 60_000;
+    const send = (hookEventName: string, atMs: number) =>
+      hub.handleIncoming(
+        {
+          agent: "qoder",
+          raw: { hook_event_name: hookEventName, session_id: "sess-t", cwd: "/work/repo-a" },
+        } as unknown as IncomingAgentEvent,
+        "macbook",
+        atMs,
+      );
+    await send("UserPromptSubmit", T0); // the task starts here
+    await send("Stop", T0 + 60_000); // a short first turn
+    await send("UserPromptSubmit", promptAt);
+    await send("Stop", stopAt);
+    expect(store.getSession("macbook:sess-t")!.lastTurnMs).toBe(12 * 60_000);
+    expect(hub.digestFor("macbook", "sess-t", stopAt)).toBe(
+      "this turn 12 min · task running 2h 12m",
     );
   });
 });

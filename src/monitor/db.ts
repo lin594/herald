@@ -27,6 +27,7 @@ const MIGRATIONS: string[] = [
     updated_at_ms INTEGER NOT NULL,
     last_activity_ms INTEGER NOT NULL,
     turn_started_ms INTEGER,
+    last_turn_ms INTEGER,
     last_heartbeat_ms INTEGER,
     last_stage TEXT,
     last_message TEXT,
@@ -104,6 +105,19 @@ export function openDatabase(dbPath: string): DatabaseSyncType {
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
+    }
+  } else {
+    // Volumes written before a column existed keep their rows; `CREATE TABLE
+    // IF NOT EXISTS` alone would leave them without it.
+    const columns = new Set(
+      (
+        db
+          .prepare("SELECT name FROM pragma_table_info('sessions')")
+          .all() as { name: string }[]
+      ).map((row) => row.name),
+    );
+    if (!columns.has("last_turn_ms")) {
+      db.exec("ALTER TABLE sessions ADD COLUMN last_turn_ms INTEGER");
     }
   }
   return db;

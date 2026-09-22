@@ -113,7 +113,7 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
     expect(session.status).toBe("ACTIVE");
     expect(sent.filter((p) => p.body.includes("No observable activity"))).toHaveLength(0);
     // Heartbeats are allowed but must respect the adaptive schedule (<= 3/h).
-    expect(sent.filter((p) => p.body.includes("Running"))).toHaveLength(1);
+    expect(sent.filter((p) => p.body.includes("task running"))).toHaveLength(1);
   });
 
   it("treats a growing Qoder transcript as activity, without a host process", async () => {

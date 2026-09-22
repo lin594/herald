@@ -108,3 +108,26 @@ describe("monitor persistence across restarts", () => {
     db2.close();
   });
 });
+
+describe("schema forward migration", () => {
+  it("adds a column an existing volume lacks and keeps its rows", () => {
+    const migrated = join(dir, "migrated.sqlite3");
+    const db = openDatabase(migrated);
+    new MonitorStore(db).upsertSession({
+      key: "macbook:s1",
+      sessionId: "s1",
+      agentType: "codex",
+      nowMs: T0,
+    });
+    // Pretend this volume was written before turns were measured.
+    db.exec("ALTER TABLE sessions DROP COLUMN last_turn_ms");
+    db.close();
+
+    const db2 = openDatabase(migrated);
+    const store = new MonitorStore(db2);
+    expect(store.getSession("macbook:s1")?.lastTurnMs).toBeNull();
+    store.updateSession("macbook:s1", { lastTurnMs: 90_000 });
+    expect(store.getSession("macbook:s1")?.lastTurnMs).toBe(90_000);
+    db2.close();
+  });
+});

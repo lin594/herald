@@ -40,6 +40,7 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
     updatedAtMs: T0,
     lastActivityMs: T0,
     turnStartedMs: null,
+    lastTurnMs: null,
     lastHeartbeatMs: null,
     lastStage: null,
     lastMessage: null,
@@ -227,7 +228,7 @@ describe("evaluateSessionTick", () => {
     );
     const beat = due.notifications.find((n) => n.kind === "heartbeat");
     expect(beat?.level).toBe("passive");
-    expect(beat?.body).toContain("Running 15 min");
+    expect(beat?.body).toContain("task running 15 min");
     expect(due.updates.lastHeartbeatMs).toBe(T0 + 901_000);
   });
 
@@ -336,7 +337,7 @@ describe("notification readability", () => {
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
     expect(zhBeat?.title).toBe("Codex · MyRepo · 还在跑");
-    expect(zhBeat?.body).toBe("已跑 15 分钟 · 最近动作在不到 1 分钟前");
+    expect(zhBeat?.body).toBe("任务已跑 15 分钟");
 
     const enBeat = evaluateSessionTick(
       {
@@ -346,6 +347,21 @@ describe("notification readability", () => {
       config,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(enBeat?.body).toBe("Running 15 min\nLast activity 0 min ago");
+    expect(enBeat?.body).toBe("task running 15 min");
+  });
+
+  it("heartbeat reports the turn in flight separately from the task", () => {
+    const beat = evaluateSessionTick(
+      {
+        session: session({
+          lastActivityMs: T0 + 900_000,
+          turnStartedMs: T0 + 300_000,
+        }),
+        ...quiet,
+      },
+      zh,
+      T0 + 901_000,
+    ).notifications.find((n) => n.kind === "heartbeat");
+    expect(beat?.body).toBe("本轮用时 10 分钟 · 任务已跑 15 分钟");
   });
 });

@@ -19,7 +19,7 @@ Tests drive these with injected clocks, never real waits.
 | QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode, and only while a turn is unaccounted for: a transcript whose last record is `end_turn`, or a user interrupt, retires the session **silently** | timeSensitive | fingerprint; cleared on resume/re-baseline |
 | Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **passive** (low priority) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
 | Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | upstream "turn finished" wording — **a turn, not the task** | per upstream | upstream cooldown policy |
-| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary (elapsed, last activity, files, ±lines, stage, artifacts) | passive | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
+| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary (turn clock while a turn is in flight, task clock, idle gap, files, ±lines, stage, artifacts) | passive | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
 | `FAILED` event × N identical | stays FAILED | once | active | fingerprint; a resume/activity edge between failures clears it → a genuine second failure notifies again |
 
 ## Silence is not evidence
@@ -47,7 +47,7 @@ agent session files.
 | Trigger | Transition | Notification | Dedup / rate |
 |---|---|---|---|
 | Host Bridge heartbeat gap > `HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS` (180 s) while a session is working | HOST_AVAILABLE → HOST_UNREACHABLE | "Host Signal Lost" (sleep or network) — **not** an agent failure | once (`host_lost` fingerprint) |
-| Heartbeats resume | HOST_UNREACHABLE → HOST_AVAILABLE | none. Recovery re-baselines every working session's clocks to now and status→QUIET: a 12 h sleep can never surface as "stalled 12 h", and no notifications replay | clears stall/resume fingerprints |
+| Heartbeats resume | HOST_UNREACHABLE → HOST_AVAILABLE | none. Recovery re-baselines every working session's clocks to now, clears the turn clock (sleep is not work, so `本轮用时` must not count it) and sets status→QUIET: a 12 h sleep can never surface as "stalled 12 h", and no notifications replay | clears stall/resume fingerprints |
 
 ## How a push reads
 
@@ -62,11 +62,18 @@ title or a duration inline.
   `stateLabel`. An opaque directory or session id is rendered
   `session 1a2b3c4d` / `会话 1a2b3c4d`, never as a bare hash.
 - **Body**: the action first, then one quantitative context line —
-  `running 1h 12m · 44 files changed +1208 −15` /
-  `已跑 1 小时 12 分 · 44 文件改动 +1208 −15` — plus `Stage:` and `Artifacts:`
-  when the monitor knows them.
-- **Nothing to add, nothing said**: clocks under a minute and zero-change
-  diffstats are dropped, so a prompt two seconds old does not push `running 0 min`.
+  `this turn 12 min · task running 1h 12m · 44 files changed +1208 −15` /
+  `本轮用时 12 分钟 · 任务已跑 1 小时 12 分 · 44 文件改动 +1208 −15` — plus
+  `Stage:` and `Artifacts:` when the monitor knows them.
+- **Which clock**: `本轮用时` is the turn the push is about — the one in flight
+  for a heartbeat, and for a `Stop` push the turn that just closed (the monitor
+  stores its duration, so this survives the row clearing its turn start).
+  `任务已跑` is the whole session. A heartbeat between turns shows only the task
+  clock, because there is no turn to report.
+- **Nothing to add, nothing said**: clocks under a minute, zero-change diffstats
+  and a clock that merely repeats the task total (`this turn` == `task running`,
+  `idle` == since the session began) are dropped, so a prompt two seconds old
+  does not push `task running 0 min`.
 - **Language**: `AGENT_NOTIFY_LANGUAGE` (`en` default) drives state labels,
   durations and context lines for both pipelines.
 

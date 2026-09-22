@@ -33,6 +33,8 @@ export interface SessionRecord {
   updatedAtMs: number;
   lastActivityMs: number;
   turnStartedMs: number | null;
+  /** Duration of the last completed turn; what a `Stop` push reports as "本轮". */
+  lastTurnMs: number | null;
   lastHeartbeatMs: number | null;
   lastStage: string | null; // last milestone/completed message
   lastMessage: string | null; // last human-readable event message

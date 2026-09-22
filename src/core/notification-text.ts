@@ -77,6 +77,9 @@ export function stateLabel(
 }
 
 export interface Digest {
+  /** Elapsed on the turn the push is about; null when no turn clock is open. */
+  turnMs?: number | null;
+  /** Elapsed since the session started — the whole task, not this turn. */
   runningMs?: number;
   idleMs?: number;
   changedFiles?: number;
@@ -88,6 +91,8 @@ export interface Digest {
  * One compact line of quantitative context. A push should answer "how long,
  * how much, is it moving" before it answers "what happened". A sub-minute
  * clock says nothing, so it is dropped rather than shown as `running 0 min`.
+ * The turn clock leads because it is what a user acts on, and a clock that is
+ * just the whole task repeated (turn ≈ running, idle ≈ running) is dropped.
  */
 export function digestLine(
   digest: Digest,
@@ -96,14 +101,24 @@ export function digestLine(
   const zh = language === "zh";
   const minuteMs = 60_000;
   const parts: string[] = [];
+  const turnMs = digest.turnMs ?? null;
+  const differsFromTask = (ms: number) =>
+    digest.runningMs == null || digest.runningMs - ms >= minuteMs;
+  if (turnMs != null && turnMs >= minuteMs && differsFromTask(turnMs)) {
+    parts.push(
+      zh
+        ? `本轮用时 ${formatDuration(turnMs, language)}`
+        : `this turn ${formatDuration(turnMs, language)}`,
+    );
+  }
   if (digest.runningMs != null && digest.runningMs >= minuteMs) {
     parts.push(
       zh
-        ? `已跑 ${formatDuration(digest.runningMs, language)}`
-        : `running ${formatDuration(digest.runningMs, language)}`,
+        ? `任务已跑 ${formatDuration(digest.runningMs, language)}`
+        : `task running ${formatDuration(digest.runningMs, language)}`,
     );
   }
-  if (digest.idleMs != null && digest.idleMs >= minuteMs) {
+  if (digest.idleMs != null && digest.idleMs >= minuteMs && differsFromTask(digest.idleMs)) {
     parts.push(
       zh
         ? `${formatDuration(digest.idleMs, language)}没动静`

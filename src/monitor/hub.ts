@@ -170,6 +170,9 @@ export class MonitorHub {
         fields.status = "ACTIVE";
       }
       fields.turnStartedMs = null;
+      // Remember the turn this Stop closed: the push built from this event is
+      // about that turn, and the row no longer carries its start.
+      fields.lastTurnMs = turnStartedMs == null ? null : nowMs - turnStartedMs;
       fields.lastActivityMs = nowMs;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
     } else if (hookEvent === "Notification") {
@@ -271,7 +274,8 @@ export class MonitorHub {
 
   /**
    * One compact line of quantitative context for a session, so a push that
-   * came from the formatter path can still answer "how long, how much".
+   * came from the formatter path can still answer "how long, how much". The
+   * turn is the one in flight, or the one a `Stop` just closed.
    */
   digestFor(
     tokenName: string,
@@ -283,6 +287,10 @@ export class MonitorHub {
     if (!session) return undefined;
     return digestLine(
       {
+        turnMs:
+          session.turnStartedMs != null
+            ? nowMs - session.turnStartedMs
+            : session.lastTurnMs,
         runningMs: nowMs - session.startedAtMs,
         changedFiles: session.changedFiles,
         insertions: session.insertions,

@@ -64,16 +64,39 @@ describe("digestLine", () => {
     expect(digestLine({ runningMs: 3_000 }, "en")).toBeUndefined();
     expect(digestLine({ runningMs: 3_000 }, "zh")).toBeUndefined();
     expect(digestLine({}, "en")).toBeUndefined();
-    expect(digestLine({ runningMs: 72 * MINUTE }, "en")).toBe("running 1h 12m");
+    expect(digestLine({ runningMs: 72 * MINUTE }, "en")).toBe("task running 1h 12m");
+    expect(digestLine({ turnMs: 40_000, runningMs: 72 * MINUTE }, "zh")).toBe(
+      "任务已跑 1 小时 12 分",
+    );
+  });
+
+  it("leads with the turn the push is about", () => {
+    expect(digestLine({ turnMs: 12 * MINUTE, runningMs: 72 * MINUTE }, "en")).toBe(
+      "this turn 12 min · task running 1h 12m",
+    );
+    expect(digestLine({ turnMs: 12 * MINUTE, runningMs: 72 * MINUTE }, "zh")).toBe(
+      "本轮用时 12 分钟 · 任务已跑 1 小时 12 分",
+    );
+  });
+
+  it("drops a clock that only repeats the task total", () => {
+    // First turn of a session: "this turn" and "task running" are the same number.
+    expect(
+      digestLine({ turnMs: 72 * MINUTE, runningMs: 72 * MINUTE + 30_000 }, "en"),
+    ).toBe("task running 1h 12m");
+    // A session that has never done anything since it started.
+    expect(
+      digestLine({ runningMs: 15 * MINUTE, idleMs: 15 * MINUTE }, "en"),
+    ).toBe("task running 15 min");
   });
 
   it("combines elapsed time with the diffstat", () => {
     expect(
       digestLine(
-        { runningMs: 72 * MINUTE, changedFiles: 44, insertions: 1208, deletions: 15 },
-        "en",
+        { turnMs: 12 * MINUTE, runningMs: 72 * MINUTE, changedFiles: 44, insertions: 1208, deletions: 15 },
+        "zh",
       ),
-    ).toBe("running 1h 12m · 44 files changed +1208 −15");
+    ).toBe("本轮用时 12 分钟 · 任务已跑 1 小时 12 分 · 44 文件改动 +1208 −15");
     expect(
       digestLine({ changedFiles: 3, insertions: 10, deletions: 0 }, "zh"),
     ).toBe("3 文件改动 +10 −0");

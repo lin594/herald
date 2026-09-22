@@ -214,6 +214,10 @@ export class MonitorScheduler {
               lastActivityMs: nowMs,
               updatedAtMs: nowMs,
               lastHeartbeatMs: nowMs, // don't fire an instant "still running" beat on wake
+              // Sleep is not work: an open turn's elapsed time is unknowable
+              // across it, so drop the turn clock instead of reporting the
+              // sleep as "本轮用时".
+              turnStartedMs: null,
               status: "QUIET",
             });
             this.store.clearFingerprint(session.key, ["possible_stall", "resumed"]);
