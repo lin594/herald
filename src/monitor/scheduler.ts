@@ -108,15 +108,20 @@ export class MonitorScheduler {
       const transcriptActive = tf?.grew ?? false;
       // Silence proves nothing, so ask the transcript what the last turn did.
       // "idle" retires the session quietly instead of reporting a stall.
-      // Without a transcript at all (a cooperative `emit` agent) fall back to
-      // the hook's own turn accounting; an unreadable one yields null and the
-      // clock decides, exactly as before.
+      // When no transcript reached us, the hook's own turn accounting is the
+      // evidence: a `Stop` that closed the last turn says as much about the
+      // session being idle as a transcript that ends on `task_complete`, so it
+      // must not fall through as "unknown" and be argued into a stall. Only a
+      // session that never reported a turn at all (a cooperative `emit` agent)
+      // is genuinely unobservable, and the state machine says so.
       let turnInFlight: boolean | null;
       if (session.sessionId && tf) {
         const evidence = await this.turnEvidence(session.sessionId, tf);
         turnInFlight = evidence === null ? null : evidence === "in_flight";
+      } else if (session.turnStartedMs !== null) {
+        turnInFlight = true;
       } else {
-        turnInFlight = session.turnStartedMs !== null ? true : null;
+        turnInFlight = session.lastTurnMs === null ? null : false;
       }
 
       const result = evaluateSessionTick(
@@ -181,7 +186,6 @@ export class MonitorScheduler {
             `host:${host.hostname}`,
             {
               kind: "host_lost",
-              level: "active",
               title: composeTitle([
                 "Herald",
                 host.hostname,
@@ -216,8 +220,11 @@ export class MonitorScheduler {
               lastHeartbeatMs: nowMs, // don't fire an instant "still running" beat on wake
               // Sleep is not work: an open turn's elapsed time is unknowable
               // across it, so drop the turn clock instead of reporting the
-              // sleep as "本轮用时".
+              // sleep as "本轮用时". Both turn facts go, because after a wake we
+              // genuinely do not know whether the turn survived — which is
+              // "unobserved", not "ended cleanly".
               turnStartedMs: null,
+              lastTurnMs: null,
               status: "QUIET",
             });
             this.store.clearFingerprint(session.key, ["possible_stall", "resumed"]);

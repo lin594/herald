@@ -1,5 +1,7 @@
 // Shared types for the execution-monitor layer (see docs/upstream-gap-analysis.md).
 
+import type { NotifySeverity } from "./severity.js";
+
 export type SessionStatus =
   | "UNKNOWN"
   | "STARTED"
@@ -59,7 +61,13 @@ export type MonitorNotificationKind =
 
 export interface DecidedNotification {
   kind: MonitorNotificationKind | EmitKind;
-  level: "passive" | "active" | "timeSensitive";
+  /**
+   * Strength override for this one push. Normally absent: the notifier picks a
+   * tier from `kind` and the configured policy, because a state the monitor can
+   * see and the same state merely guessed from a clock do not deserve the same
+   * interruption. See monitor/severity.ts.
+   */
+  severity?: NotifySeverity;
   title: string;
   body: string;
   dedupKey?: string;

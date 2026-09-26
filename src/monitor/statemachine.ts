@@ -15,9 +15,10 @@ export interface TickSessionContext {
   processActive: boolean; // related agent/child process seen in recent observations
   transcriptActive: boolean; // rollout file grew since last scan
   /**
-   * What the transcript tail says about the last turn: true = work was in
-   * flight, false = the turn ended cleanly, null/undefined = no evidence (an
-   * unreadable format or a session with no transcript at all).
+   * What the transcript tail or the hook's own turn accounting says about the
+   * last turn: true = work was in flight, false = the turn ended cleanly,
+   * null = nothing is observable about this session at all (a cooperative
+   * `emit` agent, or an agent whose transcript never reached us).
    */
   turnInFlight?: boolean | null;
 }
@@ -59,10 +60,18 @@ function detailLines(
 function contextLines(
   session: SessionRecord,
   language: NotificationLanguage,
+  /**
+   * Elapsed on the turn still in flight, for pushes that are about that turn.
+   * The task total is deliberately not added here: a stall sentence already
+   * carries its own duration, and repeating the whole task clock on every push
+   * is the noise this layer exists to avoid.
+   */
+  turnMs?: number | null,
 ): string[] {
   const lines = detailLines(session, language);
   const digest = digestLine(
     {
+      turnMs: turnMs ?? null,
       changedFiles: session.changedFiles,
       insertions: session.insertions,
       deletions: session.deletions,
@@ -174,7 +183,6 @@ export function evaluateSessionTick(
       if (idleMs / 1000 >= config.quietSeconds) {
         result.notifications.push({
           kind: "resumed",
-          level: "passive",
           title: titleFor(session, "resumed", config.language),
           body: [
             config.language === "zh"
@@ -204,18 +212,31 @@ export function evaluateSessionTick(
     // "Stalled" is a claim about work in flight, so it needs evidence that work
     // *was* in flight. A transcript whose last turn ended cleanly means the
     // silence is the session being over, not the agent hanging: retire it
-    // without pushing. null (no transcript evidence) keeps the clock-based
-    // notification, so cooperative `emit` agents are unaffected.
+    // without pushing. `null` means nothing was observable at all — that is a
+    // statement about our instruments, not about the agent, so it says so and
+    // is delivered a tier quieter rather than as a clock-based accusation.
     if (ctx.turnInFlight !== false) {
+      // Only a turn the instruments positively place *in flight* justifies the
+      // stronger claim; a clock running out with nothing to read says more
+      // about our instruments than about the agent.
+      const evidenceBacked = ctx.turnInFlight === true;
       result.notifications.push({
         kind: "possible_stall",
-        level: "timeSensitive",
+        severity: evidenceBacked ? "notice" : "info",
         title: titleFor(session, "possible_stall", config.language),
         body: [
-          config.language === "zh"
-            ? `已 ${formatDuration(idleMs, "zh")}没有任何可观察动作`
-            : `No observable activity for ${formatElapsed(idleMs)}.`,
-          ...contextLines(session, config.language),
+          evidenceBacked
+            ? config.language === "zh"
+              ? `已 ${formatDuration(idleMs, "zh")}没有任何可观察动作`
+              : `No observable activity for ${formatElapsed(idleMs)}.`
+            : config.language === "zh"
+              ? `没有可读的运行证据，仅按计时器判断已静默 ${formatDuration(idleMs, "zh")}`
+              : `No observable evidence; silent for ${formatElapsed(idleMs)} by clock alone.`,
+          ...contextLines(
+            session,
+            config.language,
+            session.turnStartedMs == null ? null : nowMs - session.turnStartedMs,
+          ),
         ].join("\n"),
       });
     }
@@ -251,7 +272,6 @@ export function evaluateSessionTick(
     if (due && changedSinceBeat) {
       result.notifications.push({
         kind: "heartbeat",
-        level: "passive",
         title: titleFor(session, "heartbeat", config.language),
         body: heartbeatBody(session, nowMs, config.language),
       });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseMonitorConfig } from "../../src/monitor/config.js";
 
 describe("projectMap", () => {
@@ -30,5 +30,40 @@ describe("projectMap", () => {
 
   it("stays empty without workspaces or a map", () => {
     expect(parseMonitorConfig({}).projectMap).toEqual({});
+  });
+});
+
+describe("severity policy", () => {
+  it("floors at info so inference-only pushes stay silent but visible", () => {
+    const config = parseMonitorConfig({});
+    expect(config.minSeverity).toBe("info");
+    expect(config.severityMap).toEqual({});
+  });
+
+  it("reads HERALD_MIN_SEVERITY and HERALD_SEVERITY_MAP", () => {
+    const config = parseMonitorConfig({
+      HERALD_MIN_SEVERITY: "NOTICE",
+      HERALD_SEVERITY_MAP: "possible_stall=critical,heartbeat=debug",
+    });
+    expect(config.minSeverity).toBe("notice");
+    expect(config.severityMap).toEqual({
+      possible_stall: "critical",
+      heartbeat: "debug",
+    });
+  });
+
+  it("ignores an unreadable severity instead of guessing one", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const config = parseMonitorConfig({
+        HERALD_MIN_SEVERITY: "urgent",
+        HERALD_SEVERITY_MAP: "heartbeat=verbose;resumed=info",
+      });
+      expect(config.minSeverity).toBe("info");
+      expect(config.severityMap).toEqual({ resumed: "info" });
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

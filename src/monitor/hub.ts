@@ -27,15 +27,6 @@ const EMIT_KINDS = new Set<EmitKind>([
   "completed",
 ]);
 
-const EMIT_LEVELS: Record<EmitKind, DecidedNotification["level"]> = {
-  started: "passive",
-  milestone: "active",
-  waiting: "timeSensitive",
-  blocked: "timeSensitive",
-  failed: "timeSensitive",
-  completed: "active",
-};
-
 const EMIT_STATUS: Record<EmitKind, SessionStatus> = {
   started: "STARTED",
   milestone: "ACTIVE",
@@ -248,7 +239,8 @@ export class MonitorHub {
     const label = stateLabel(kind, this.deps.config.language);
     const notification: DecidedNotification = {
       kind,
-      level: EMIT_LEVELS[kind],
+      // Strength comes from the severity policy, like every other push, so
+      // `HERALD_SEVERITY_MAP=completed=debug` retunes cooperative agents too.
       title: composeTitle([
         agentLabel(agentType),
         readableProject(project, this.deps.config.language) ??

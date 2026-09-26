@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { NotificationLanguage } from "../core/language.js";
+import { isSeverity, type NotifySeverity } from "./severity.js";
 
 export interface WorkspaceConfig {
   name: string;
@@ -33,6 +34,10 @@ export interface MonitorConfig {
   scanMaxFiles: number;
   maxBodyChars: number;
   language: NotificationLanguage; // reuses the upstream AGENT_NOTIFY_LANGUAGE
+  /** Pushes below this strength are dropped before anything is sent. */
+  minSeverity: NotifySeverity;
+  /** Per-kind strength overrides from HERALD_SEVERITY_MAP, e.g. heartbeat=debug. */
+  severityMap: Record<string, NotifySeverity>;
   transcriptDir: string | null; // container path, read-only mount of ~/.codex/sessions
   qoderDir: string | null; // container path, read-only mount of ~/.qoder/projects
   workspaces: WorkspaceConfig[];
@@ -44,6 +49,41 @@ function parseWorkspaces(value: string | undefined): WorkspaceConfig[] {
   const parsed = JSON.parse(value);
   if (!Array.isArray(parsed)) throw new Error("HERALD_WORKSPACES must be a JSON array");
   return parsed.map((item) => workspaceSchema.parse(item));
+}
+
+/**
+ * `HERALD_SEVERITY_MAP="possible_stall=critical,heartbeat=debug"`. A pair whose
+ * severity is not one of the four tiers is reported and ignored rather than
+ * silently retuning the policy: an unread config is worse than no config.
+ */
+function parseSeverityMap(value: string | undefined): Record<string, NotifySeverity> {
+  const out: Record<string, NotifySeverity> = {};
+  if (!value?.trim()) return out;
+  for (const pair of value.split(/[,;]/)) {
+    const idx = pair.indexOf("=");
+    if (idx <= 0) continue;
+    const kind = pair.slice(0, idx).trim();
+    const severity = pair.slice(idx + 1).trim().toLowerCase();
+    if (!kind) continue;
+    if (!isSeverity(severity)) {
+      console.warn(`[herald] ignoring HERALD_SEVERITY_MAP entry "${pair}"`);
+      continue;
+    }
+    out[kind] = severity;
+  }
+  return out;
+}
+
+function parseMinSeverity(value: string | undefined): NotifySeverity {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return "info";
+  if (!isSeverity(raw)) {
+    console.warn(
+      `[herald] ignoring HERALD_MIN_SEVERITY="${value}" (use debug, info, notice or critical)`,
+    );
+    return "info";
+  }
+  return raw;
 }
 
 function parseProjectMap(value: string | undefined): Record<string, string> {
@@ -90,6 +130,8 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     scanMaxFiles: Number(env.HERALD_SCAN_MAX_FILES ?? 5000),
     maxBodyChars: Number(env.HERALD_MAX_BODY_CHARS ?? 1200),
     language: env.AGENT_NOTIFY_LANGUAGE === "zh" ? "zh" : "en",
+    minSeverity: parseMinSeverity(env.HERALD_MIN_SEVERITY),
+    severityMap: parseSeverityMap(env.HERALD_SEVERITY_MAP),
     transcriptDir: env.HERALD_TRANSCRIPT_DIR?.trim() || null,
     qoderDir: env.HERALD_QODER_DIR?.trim() || null,
     workspaces,

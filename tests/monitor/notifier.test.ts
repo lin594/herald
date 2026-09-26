@@ -21,6 +21,8 @@ const config: MonitorConfig = {
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
+  minSeverity: "info",
+  severityMap: {},
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],
@@ -46,7 +48,7 @@ describe("MonitorNotifier", () => {
     const { notifier, sent } = fixture();
     await notifier.notify(
       "macbook:s1",
-      { kind: "milestone", level: "active", title: "T", body: "token=supersecretvalue123 done" },
+      { kind: "milestone", title: "T", body: "token=supersecretvalue123 done" },
       T0,
     );
     expect(sent[0].body).not.toContain("supersecretvalue123");
@@ -57,13 +59,13 @@ describe("MonitorNotifier", () => {
     const { notifier, sent } = fixture();
     await notifier.notify(
       "macbook:q1",
-      { kind: "heartbeat", level: "passive", title: "T", body: "b" },
+      { kind: "heartbeat", title: "T", body: "b" },
       T0,
       { group: "Qoder" },
     );
     await notifier.notify(
       "macbook:h1",
-      { kind: "host_lost", level: "active", title: "T", body: "b" },
+      { kind: "host_lost", title: "T", body: "b" },
       T0,
     );
     expect(sent.map((payload) => payload.group)).toEqual(["Qoder", "Codex"]);
@@ -75,7 +77,6 @@ describe("MonitorNotifier", () => {
       "macbook:s1",
       {
         kind: "milestone",
-        level: "active",
         title: "T",
         body: "api_key=sk-abcdefghijklmnop password=hunter2 Authorization: Bearer xyz123",
       },
@@ -88,7 +89,7 @@ describe("MonitorNotifier", () => {
     const { notifier, sent } = fixture({ maxBodyChars: 50 });
     await notifier.notify(
       "macbook:s1",
-      { kind: "milestone", level: "active", title: "T", body: "x".repeat(500) },
+      { kind: "milestone", title: "T", body: "x".repeat(500) },
       T0,
     );
     expect(sent[0].body.length).toBeLessThanOrEqual(60);
@@ -98,7 +99,7 @@ describe("MonitorNotifier", () => {
     const { notifier, sent } = fixture();
     await notifier.notify(
       "macbook:s1",
-      { kind: "failed", level: "timeSensitive", title: "T", body: "boom" },
+      { kind: "failed", title: "T", body: "boom" },
       T0,
     );
     expect(sent[0].urgency).toBe("time_sensitive");
@@ -107,7 +108,7 @@ describe("MonitorNotifier", () => {
 
   it("dedups identical kind+body and re-notifies after clearFingerprint (FAILED twice)", async () => {
     const { notifier, sent, store } = fixture();
-    const n = { kind: "failed", level: "timeSensitive", title: "T", body: "boom" } as const;
+    const n = { kind: "failed", title: "T", body: "boom" } as const;
     await notifier.notify("macbook:s1", n, T0);
     await notifier.notify("macbook:s1", n, T0 + 1000); // duplicate: suppressed
     expect(sent).toHaveLength(1);
@@ -122,7 +123,7 @@ describe("MonitorNotifier", () => {
     for (let i = 0; i < 4; i++) {
       await notifier.notify(
         "macbook:s1",
-        { kind: "heartbeat", level: "passive", title: "T", body: `beat ${i}` },
+        { kind: "heartbeat", title: "T", body: `beat ${i}` },
         T0 + i * 1000,
       );
     }
@@ -130,7 +131,7 @@ describe("MonitorNotifier", () => {
 
     await notifier.notify(
       "macbook:s1",
-      { kind: "milestone", level: "active", title: "T", body: "beat 9" },
+      { kind: "milestone", title: "T", body: "beat 9" },
       T0 + 5000,
     );
     expect(sent.filter((p) => p.body === "beat 9")).toHaveLength(1);
@@ -138,7 +139,7 @@ describe("MonitorNotifier", () => {
 
   it("force bypasses dedup", async () => {
     const { notifier, sent } = fixture();
-    const n = { kind: "milestone", level: "active", title: "T", body: "same" } as const;
+    const n = { kind: "milestone", title: "T", body: "same" } as const;
     await notifier.notify("macbook:s1", n, T0);
     await notifier.notify("macbook:s1", n, T0 + 1, { force: true });
     expect(sent).toHaveLength(2);
@@ -151,7 +152,7 @@ describe("MonitorNotifier", () => {
       send: vi.fn(async (): Promise<NotificationResult> => ({ ok: false, error: "down" })),
     };
     const notifier = new MonitorNotifier(store, provider, config);
-    const n = { kind: "failed", level: "timeSensitive", title: "T", body: "boom" } as const;
+    const n = { kind: "failed", title: "T", body: "boom" } as const;
     const first = await notifier.notify("macbook:s1", n, T0);
     const second = await notifier.notify("macbook:s1", n, T0 + 1000);
     expect(first).toBe(false);
@@ -162,5 +163,55 @@ describe("MonitorNotifier", () => {
     expect(store.isDuplicateFingerprint(
       "macbook:s1", "failed", fingerprintOf("macbook:s1", "failed", "boom"),
     )).toBe(false);
+  });
+
+  it("drops a push below the configured floor without recording it", async () => {
+    const { store, notifier, sent } = fixture({ minSeverity: "notice" });
+    const beat = { kind: "heartbeat", title: "T", body: "task running 1 h" } as const;
+    expect(await notifier.notify("macbook:s1", beat, T0)).toBe(false);
+    expect(sent).toHaveLength(0);
+    // Nothing was recorded, so raising the floor later must not find the push
+    // already "delivered" in the dedup layer.
+    expect(store.countNotificationsSince("macbook:s1", "heartbeat", 0)).toBe(0);
+
+    await notifier.notify("macbook:s1", { kind: "milestone", title: "T", body: "step 3" }, T0 + 1);
+    expect(sent.map((payload) => payload.body)).toEqual(["step 3"]);
+  });
+
+  it("keeps the debug tier off the wire by default", async () => {
+    const { notifier, sent } = fixture();
+    await notifier.notify("macbook:s1", { kind: "started", title: "T", body: "on it" }, T0);
+    expect(sent).toHaveLength(0); // activity, not a state change
+
+    const verbose = fixture({ minSeverity: "debug" });
+    await verbose.notifier.notify(
+      "macbook:s1",
+      { kind: "started", title: "T", body: "on it" },
+      T0,
+    );
+    expect(verbose.sent[0].level).toBe("passive");
+  });
+
+  it("lets HERALD_SEVERITY_MAP outrank the state machine's own judgement", async () => {
+    const { notifier, sent } = fixture({ severityMap: { possible_stall: "critical" } });
+    await notifier.notify(
+      "macbook:s1",
+      { kind: "possible_stall", severity: "info", title: "T", body: "clock only" },
+      T0,
+    );
+    expect(sent[0].level).toBe("timeSensitive");
+    expect(sent[0].urgency).toBe("time_sensitive");
+  });
+
+  it("delivers every waiting-for-a-human kind as time sensitive", async () => {
+    const { notifier, sent } = fixture();
+    for (const kind of ["waiting", "blocked", "failed"] as const) {
+      await notifier.notify("macbook:s1", { kind, title: "T", body: `s:${kind}` }, T0);
+    }
+    expect(sent.map((payload) => payload.level)).toEqual([
+      "timeSensitive",
+      "timeSensitive",
+      "timeSensitive",
+    ]);
   });
 });

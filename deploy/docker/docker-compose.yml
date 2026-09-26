@@ -34,6 +34,11 @@ services:
       HERALD_QUIET_SECONDS: "${HERALD_QUIET_SECONDS:-600}"
       HERALD_STALL_SECONDS: "${HERALD_STALL_SECONDS:-1500}"
       HERALD_HEARTBEAT_MAX_PER_HOUR: "${HERALD_HEARTBEAT_MAX_PER_HOUR:-3}"
+      # Notification strength: debug < info < notice < critical. A push below
+      # the floor never reaches the provider, and one kind can be retuned
+      # without a code change (docs/notification-policy.md).
+      HERALD_MIN_SEVERITY: "${HERALD_MIN_SEVERITY:-info}"
+      HERALD_SEVERITY_MAP: "${HERALD_SEVERITY_MAP:-}"
       HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS: "${HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS:-180}"
       HERALD_WATCH_INTERVAL_SECONDS: "${HERALD_WATCH_INTERVAL_SECONDS:-30}"
       HERALD_GIT_SCAN_INTERVAL_SECONDS: "${HERALD_GIT_SCAN_INTERVAL_SECONDS:-60}"

@@ -108,6 +108,29 @@ describe("workspace observers", () => {
     expect(await scanTranscriptDir(join(sessionsRoot, "missing"))).toEqual(new Map());
   });
 
+  it("indexes a resumed rollout under every id its name carries", async () => {
+    // Codex continues a thread in `rollout-<ts>-<thread>_<turn>.jsonl` while the
+    // hooks keep reporting the thread id, so keying only the trailing id left
+    // resumed threads with no transcript to read — and a transcript-less session
+    // is a session the monitor cannot prove idle.
+    const sessionsRoot = join(root, "..", `herald-sessions-resume-${Date.now()}`);
+    const day = join(sessionsRoot, "2026", "09", "20");
+    mkdirSync(day, { recursive: true });
+    const TURN = "0f6f9a5a-2f1c-4b17-9a3d-000000000000";
+    const original = join(day, `rollout-2026-09-20T10-00-00-${UUID}.jsonl`);
+    const resumed = join(day, `rollout-2026-09-20T11-00-00-${UUID}_${TURN}.jsonl`);
+    writeFileSync(original, "{}\n");
+    writeFileSync(resumed, "{}\n{}\n");
+    utimesSync(original, new Date(), new Date(Date.now() - 60_000));
+    utimesSync(resumed, new Date(), new Date());
+
+    const fresh = await scanTranscriptDir(sessionsRoot);
+    expect([...fresh.keys()].sort()).toEqual([TURN, UUID].sort());
+    // The later write is the live transcript for both ids.
+    expect(fresh.get(UUID)?.path).toBe(resumed);
+    expect(fresh.get(TURN)?.path).toBe(resumed);
+  });
+
   it("indexes Qoder transcripts as <project-slug>/<session-id>.jsonl", async () => {
     const qoderRoot = join(root, "..", `herald-qoder-${Date.now()}`);
     const project = join(qoderRoot, "-Users-me-workspace-lin594-my-repo");
@@ -166,10 +189,50 @@ describe("transcript turn evidence", () => {
     }
   });
 
+  it("reads a Codex rollout turn bracket through the records that trail it", () => {
+    // Observed vocabulary: every turn is `task_started` … `task_complete`, and
+    // token counts, item completions and applied settings keep arriving both
+    // during and after it.
+    const event = (payload: Record<string, unknown>) =>
+      JSON.stringify({ timestamp: "2026-09-26T11:21:10.375Z", ordinal: 50, type: "event_msg", payload });
+    const response = (payload: Record<string, unknown>) =>
+      JSON.stringify({ timestamp: "2026-09-26T11:21:10.375Z", ordinal: 51, type: "response_item", payload });
+    const turn = { turn_id: "01a0dd70-feee-7cd2-8353-fa4b5db76e47" };
+
+    expect(
+      classifyTranscriptTail([
+        event({ type: "task_started", ...turn }),
+        response({ type: "reasoning" }),
+        event({ type: "token_count" }),
+        event({ type: "agent_message" }),
+        event({ type: "task_complete", ...turn, duration_ms: 105188 }),
+        event({ type: "thread_settings_applied" }),
+        event({ type: "token_count" }),
+      ]),
+    ).toBe("idle");
+
+    expect(
+      classifyTranscriptTail([
+        event({ type: "task_complete", ...turn }),
+        event({ type: "task_started", turn_id: "01a0dd73-3142-7903-9d99-fbbb6951af2f" }),
+        event({ type: "token_count" }),
+      ]),
+    ).toBe("in_flight");
+
+    // A rollout that never says which turn state it is in proves nothing: the
+    // clock, not the transcript, must decide.
+    expect(
+      classifyTranscriptTail([
+        response({ type: "message", role: "assistant" }),
+        event({ type: "item_completed" }),
+      ]),
+    ).toBeNull();
+  });
+
   it("reports nothing for a format it cannot read", () => {
     expect(classifyTranscriptTail([])).toBeNull();
     expect(classifyTranscriptTail(["not json", record("active-leaf")])).toBeNull();
-    // Codex rollout envelope records are not message records.
+    // A Codex envelope with no payload carries no turn state to read.
     expect(classifyTranscriptTail([JSON.stringify({ type: "response_item" })])).toBeNull();
   });
 

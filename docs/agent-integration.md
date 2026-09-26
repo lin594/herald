@@ -55,6 +55,10 @@ the user file, so a repo can opt in or out independently.
 | `Stop` | long turn → WAITING_USER ("Ready to review"); short turn suppressed by the shared completion gate | active |
 | `StopFailure` | FAILED | timeSensitive |
 
+Hook pushes are formatted by the upstream pipeline, which sets its own delivery
+level; the monitor's tier policy (`HERALD_MIN_SEVERITY`) governs the state it
+observes itself and every `emit` push below.
+
 Qoder's `Stop` is a *turn* boundary, so it never marks the task done — use
 `emit completed` for that. `SessionEnd` (clear/logout/resume) is not forwarded
 either: it says the UI closed, not that the work finished. Same for tool-level
@@ -82,14 +86,19 @@ curl -sS http://127.0.0.1:8787/events \
 Or from a shell inside the container: `./herald emit <type> "<message>"`
 (env: `HERALD_EMIT_PROJECT`, `HERALD_EMIT_SESSION`, `HERALD_EMIT_AGENT`, `HERALD_EMIT_CWD`).
 
-| type | meaning | session state | phone level |
+| type | meaning | session state | strength |
 |---|---|---|---|
-| `started` | long task genuinely began | STARTED | passive |
-| `milestone` | phase done, artifact produced | ACTIVE | active |
-| `waiting` | needs a human decision now | WAITING_USER | timeSensitive |
-| `blocked` | stuck on external thing, needs attention | BLOCKED | timeSensitive |
-| `failed` | task cannot continue | FAILED | timeSensitive |
-| `completed` | task finished, result ready | COMPLETED | active |
+| `started` | long task genuinely began | STARTED | `debug` — not delivered at the default floor |
+| `milestone` | phase done, artifact produced | ACTIVE | `notice` |
+| `waiting` | needs a human decision now | WAITING_USER | `critical` |
+| `blocked` | stuck on external thing, needs attention | BLOCKED | `critical` |
+| `failed` | task cannot continue | FAILED | `critical` |
+| `completed` | task finished, result ready | COMPLETED | `notice` |
+
+Strength is the policy layer's, not the agent's: `HERALD_MIN_SEVERITY` raises the
+floor and `HERALD_SEVERITY_MAP=completed=debug` re-tunes a kind, so a team can
+quiet `milestone` without anyone editing the emitter. See
+[notification-policy.md](notification-policy.md#notification-strength).
 
 Rules for agents:
 - Emit at **state changes**, not progress ticks. Identical repeats are
@@ -113,5 +122,8 @@ routine progress. When you need user input, emit "waiting" BEFORE stopping.
 ## Turning it off briefly
 
 Upstream mute switches (`/agent-notify` session/timed/persistent mute) still
-apply to hook-origin notifications. Monitor-side silence: emit nothing, or
+apply to hook-origin notifications. Monitor-side silence, from gentlest to
+bluntest: raise `HERALD_MIN_SEVERITY` (`notice` keeps completions, stalls and
+everything that needs a human; `critical` keeps only waiting/blocked/failed),
+retune one kind with `HERALD_SEVERITY_MAP`, emit nothing, or
 `HERALD_ENABLED=false` + restart for total monitor quiet.

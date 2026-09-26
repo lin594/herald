@@ -24,6 +24,8 @@ const config: MonitorConfig = {
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
+  minSeverity: "info",
+  severityMap: {},
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],

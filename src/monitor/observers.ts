@@ -192,10 +192,18 @@ export async function scanTranscriptDir(
       const full = join(day, file);
       try {
         const stat = await fs.stat(full);
-        const uuid = basename(file, ".jsonl").match(
-          /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/,
-        )?.[1];
-        if (uuid) out.set(uuid, { mtimeMs: stat.mtimeMs, size: stat.size, path: full });
+        // A resumed Codex thread keeps writing to a continuation file named
+        // `rollout-<ts>-<thread>_<turn>.jsonl`, while hooks report the thread
+        // id, so every id in the name addresses this transcript. Where two
+        // files claim one id, the later write is the live one.
+        const ids =
+          basename(file, ".jsonl").match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/g) ??
+          [];
+        for (const uuid of ids) {
+          const previous = out.get(uuid);
+          if (previous && previous.mtimeMs >= stat.mtimeMs) continue;
+          out.set(uuid, { mtimeMs: stat.mtimeMs, size: stat.size, path: full });
+        }
       } catch {
         // ignore
       }
@@ -261,12 +269,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Classify the last *message* record of a transcript, walked from the end.
- * Bookkeeping records (`active-leaf`, `last-prompt`, `workspace-directories`,
- * `runtime-config`, `attachment`, ...) are appended after the turn is over and
- * say nothing about it, so they are skipped, as are unparseable lines. Returns
- * null when the file holds no message we can read — an unknown format must
- * never suppress a notification.
+ * Classify how the last turn of a transcript ended, walked from the end, for
+ * either on-disk shape: a Claude-style record (`type: assistant|user` beside a
+ * `message`) or a Codex rollout (`type: event_msg` beside a `payload`). The
+ * bookkeeping each format appends after the turn is over (`active-leaf`,
+ * `last-prompt`, `workspace-directories`, `runtime-config`, `attachment`,
+ * `token_count`, `item_completed`, `thread_settings_applied`, ...) says nothing
+ * about it, so it is skipped, as are unparseable lines. Returns null when the
+ * file holds no record we can read — an unknown format must never suppress a
+ * notification.
  */
 export function classifyTranscriptTail(lines: string[]): TurnEvidence | null {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -278,7 +289,19 @@ export function classifyTranscriptTail(lines: string[]): TurnEvidence | null {
     } catch {
       continue; // torn or over-long record: not evidence either way
     }
-    if (!isRecord(record) || !isRecord(record.message)) continue;
+    if (!isRecord(record)) continue;
+    if (record.type === "event_msg" && isRecord(record.payload)) {
+      // Codex brackets every turn in its rollout: `event_msg/task_started`
+      // until `event_msg/task_complete`. Everything else that appears at the
+      // tail — token counts, item completions, applied thread settings, echoed
+      // prompts and messages — is written during *and* after a turn, so it is
+      // bookkeeping here and skipped like the Qoder equivalent.
+      const kind = record.payload.type;
+      if (kind === "task_started") return "in_flight";
+      if (kind === "task_complete") return "idle";
+      continue;
+    }
+    if (!isRecord(record.message)) continue;
     const message = record.message;
     if (record.type === "assistant") {
       return message.stop_reason === "end_turn" ? "idle" : "in_flight";

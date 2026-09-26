@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { evaluateSessionTick, formatElapsed } from "../../src/monitor/statemachine.js";
+import {
+  passesSeverityGate,
+  resolveSeverity,
+  SEVERITY_DELIVERY,
+} from "../../src/monitor/severity.js";
 import type { MonitorConfig } from "../../src/monitor/config.js";
 import type { SessionRecord } from "../../src/monitor/types.js";
 
@@ -19,6 +24,8 @@ const config: MonitorConfig = {
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
+  minSeverity: "info",
+  severityMap: {},
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],
@@ -71,15 +78,75 @@ describe("evaluateSessionTick", () => {
 
   it("QUIET -> stall once when host is available", () => {
     const result = evaluateSessionTick(
-      { session: session({ status: "QUIET", lastActivityMs: T0 }), ...quiet },
+      {
+        session: session({ status: "QUIET", lastActivityMs: T0, turnStartedMs: T0 }),
+        ...quiet,
+        turnInFlight: true,
+      },
       config,
       T0 + 1501_000,
     );
     expect(result.updates.status).toBe("UNKNOWN");
     const stall = result.notifications.find((n) => n.kind === "possible_stall");
     expect(stall).toBeDefined();
-    expect(stall?.level).toBe("timeSensitive");
+    // A stall is an inference, not a fact: it gets a visible push, but it must
+    // never interrupt the way "the agent is waiting for you" does.
+    expect(resolveSeverity(stall!, config)).toBe("notice");
     expect(stall?.body).toContain("No observable activity");
+    // The clock the user acts on is the turn, not the whole task.
+    expect(stall?.body).toContain("this turn 25 min");
+  });
+
+  it("downgrades a stall that nothing can back up to clock-only reporting", () => {
+    const result = evaluateSessionTick(
+      { session: session({ status: "QUIET", lastActivityMs: T0 }), ...quiet },
+      config,
+      T0 + 1501_000,
+    );
+    const stall = result.notifications.find((n) => n.kind === "possible_stall");
+    expect(stall).toBeDefined();
+    expect(resolveSeverity(stall!, config)).toBe("info");
+    expect(stall?.body).toContain("by clock alone");
+    expect(stall?.body).not.toContain("No observable activity");
+  });
+
+  it("HERALD_MIN_SEVERITY=notice drops the clock-only stall but keeps a real one", () => {
+    const strict: MonitorConfig = { ...config, minSeverity: "notice" };
+    const blind = evaluateSessionTick(
+      { session: session({ status: "QUIET", lastActivityMs: T0 }), ...quiet },
+      strict,
+      T0 + 1501_000,
+    );
+    const backed = evaluateSessionTick(
+      {
+        session: session({ status: "QUIET", lastActivityMs: T0, turnStartedMs: T0 }),
+        ...quiet,
+        turnInFlight: true,
+      },
+      strict,
+      T0 + 1501_000,
+    );
+    const blindStall = blind.notifications.find((n) => n.kind === "possible_stall");
+    const backedStall = backed.notifications.find((n) => n.kind === "possible_stall");
+    expect(passesSeverityGate(resolveSeverity(blindStall!, strict), strict)).toBe(false);
+    expect(passesSeverityGate(resolveSeverity(backedStall!, strict), strict)).toBe(true);
+  });
+
+  it("HERALD_SEVERITY_MAP can move a kind up or down without a code change", () => {
+    const mapped: MonitorConfig = {
+      ...config,
+      severityMap: { possible_stall: "critical", heartbeat: "debug" },
+    };
+    const result = evaluateSessionTick(
+      { session: session({ status: "QUIET", lastActivityMs: T0 }), ...quiet },
+      mapped,
+      T0 + 1501_000,
+    );
+    const stall = result.notifications.find((n) => n.kind === "possible_stall");
+    expect(SEVERITY_DELIVERY[resolveSeverity(stall!, mapped)]).toBe("timeSensitive");
+    expect(
+      passesSeverityGate(resolveSeverity({ kind: "heartbeat", title: "t", body: "b" }, mapped), mapped),
+    ).toBe(false);
   });
 
   it("retires a finished session silently instead of reporting a stall", () => {
@@ -164,7 +231,7 @@ describe("evaluateSessionTick", () => {
     );
     expect(result.updates.status).toBe("ACTIVE");
     const resumed = result.notifications.find((n) => n.kind === "resumed");
-    expect(resumed?.level).toBe("passive");
+    expect(resolveSeverity(resumed!, config)).toBe("info");
     expect(result.clearedDedupKinds).toContain("possible_stall");
   });
 
@@ -227,7 +294,7 @@ describe("evaluateSessionTick", () => {
       T0 + 901_000,
     );
     const beat = due.notifications.find((n) => n.kind === "heartbeat");
-    expect(beat?.level).toBe("passive");
+    expect(resolveSeverity(beat!, config)).toBe("info");
     expect(beat?.body).toContain("task running 15 min");
     expect(due.updates.lastHeartbeatMs).toBe(T0 + 901_000);
   });
@@ -281,6 +348,9 @@ describe("notification readability", () => {
       {
         session: session({ status: "QUIET", lastActivityMs: T0, ...overrides }),
         ...quiet,
+        // Readability is judged on the wording a *real* stall carries; the
+        // clock-only variant is covered in the evaluateSessionTick block below.
+        turnInFlight: true,
       },
       cfg,
       T0 + 1501_000,

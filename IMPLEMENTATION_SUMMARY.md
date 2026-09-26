@@ -5,7 +5,7 @@ a long-lived local monitor for hours-long AI-agent tasks that pushes only
 state changes that matter to iPhone via Bark. Deliberately NOT a rewrite —
 upstream notify/format/cooldown machinery is kept and reused.
 
-318 tests pass (`pnpm test`), typecheck clean, live stack verified in
+381 tests pass (`pnpm test`), typecheck clean, live stack verified in
 Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 
 ## VERIFIED (implemented + proven by test or live run)
@@ -21,7 +21,26 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 **State machine & policy** (`src/monitor/`, docs/notification-policy.md)
 - 8 session states + orthogonal HOST_AVAILABLE/HOST_UNREACHABLE; host loss is
   never reported as agent stall (unit + scheduler tests, injected clocks).
-- Quiet (10 min) → stall (25 min) edge once; resume edge once, passive level.
+- Quiet (10 min) → stall (25 min) edge once; resume edge once, `info` tier.
+- Notification strength (`src/monitor/severity.ts`): every push resolves to
+  `debug|info|notice|critical` (operator map > per-push override > built-in
+  table), which drives the Bark delivery level and an `HERALD_MIN_SEVERITY`
+  floor checked before redaction, dedup or recording — a suppressed push leaves
+  no fingerprint, so raising the floor later cannot swallow it.
+- A stall is a claim about work in flight, so it needs evidence: the turn verdict
+  is tri-state (`in flight` / `closed cleanly` / `nothing observable`). A closed
+  turn retires silently; a blind clock-out still notifies but says
+  "by clock alone" at `info`. Codex `task_started`/`task_complete` brackets are
+  now read through the bookkeeping records that trail them, and a resumed
+  thread's composite filename indexes under every id it carries — before this,
+  every rollout of a resumed session was invisible to the scan. Measured on the
+  operator's own `~/.codex/sessions`: 28 of 34 indexed rollouts now resolve to
+  a closed turn, 0 to an open one (none resolved at all before). Live proof
+  against the running container, shortened timers, mock Bark: a
+  `task_complete` rollout produced **no** push, an open turn produced one
+  `possible_stall` at `active`, a session with nothing to read produced the
+  clock-alone wording at `passive`, `HERALD_SEVERITY_MAP=possible_stall=debug`
+  silenced both stalls, and `emit started` never left the process.
 - Adaptive heartbeat 15 min first / 30 min after, content-gated, ≤3/h/session
   (enforced in notifier, proven in integration test H).
 - FAILED×N identical dedup by (kind+body) fingerprint; any interleaved
@@ -42,7 +61,8 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
   semantics). PermissionRequest and approval `Notification`s land in
   WAITING_USER with a timeSensitive push — integration test C-qoder. Live E2E
   against mock Bark on a fixture transcript mount: prompt→ACTIVE, idle→QUIET,
-  stall→timeSensitive, transcript growth→"Resumed", `Stop` stayed ACTIVE; all
+  stall→`notice` (delivered at Bark `active`), transcript growth→"Resumed",
+  `Stop` stayed ACTIVE; all
   pushes carried group `Qoder` and titles `[Qoder] <project> · …`.
 - Installer hook merge is pure and unit-tested in `host/hooks-merge.mjs`
   (`parseHooksDoc`/`ensureHooks`/`stripHooks`): unrelated top-level keys in
