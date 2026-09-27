@@ -295,11 +295,11 @@ cp examples/codex/skills/agent-notify/SKILL.md ~/.codex/skills/agent-notify/SKIL
 {
   "serverUrl": "http://127.0.0.1:8787",
   "token": "<the part after the colon in the server's AGENT_NOTIFY_TOKENS>",
-  "notifyPermissionRequests": false
+  "notifyPermissionRequests": true
 }
 ```
 
-Leave `notifyPermissionRequests` at `false` during first-time install. This keeps Codex permission prompts quiet for auto-approval workflows while preserving long-task completion notifications.
+Keep `notifyPermissionRequests` at `true`. It decides whether the monitor ever **sees** a permission request, not whether your phone rings: a request that reaches the server is recorded as a wait and pushed only if it is still unanswered after `HERALD_WAITING_GRACE_SECONDS` (default 60 s), so the ones auto-approval answers in seconds stay silent on their own. Setting it to `false` does not tune the phone — it blinds the monitor, and the waits that genuinely need you go quiet too.
 
 **Get the adapter's absolute path**:
 

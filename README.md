@@ -49,6 +49,12 @@ renders the same pushes in Chinese; an unnamed workspace is shown as
   < `notice` < `critical`), and only a state where the agent has stopped and
   needs a human is allowed to interrupt. `HERALD_MIN_SEVERITY` drops everything
   below a floor; `HERALD_SEVERITY_MAP` retunes one kind without a code change.
+- **An ask is not a question you owe.** Under auto-approval most permission
+  requests answer themselves in seconds, so a request is recorded and only a
+  wait that outlives `HERALD_WAITING_GRACE_SECONDS` (60 s) becomes one push —
+  `等你批准: Bash`. The heartbeat quotes the agent's own last words instead of a
+  monitor-written summary, so the periodic "still running" ping tells you what
+  the run actually concluded.
 - **Four evidence channels.** Hook events (cooperative), session transcript
   growth, host process facts, and read-only workspace/git observation. No
   single channel is trusted to say "working".

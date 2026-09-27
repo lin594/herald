@@ -39,7 +39,15 @@ export interface SessionRecord {
   lastTurnMs: number | null;
   lastHeartbeatMs: number | null;
   lastStage: string | null; // last milestone/completed message
-  lastMessage: string | null; // last human-readable event message
+  /**
+   * What the agent itself last said, from `Stop` or a cooperative emit. Never
+   * prompt text: a push may quote it, and prompts must not reach a provider.
+   */
+  lastMessage: string | null;
+  /** When the current wait on a human began; null when nothing is pending. */
+  waitingSinceMs: number | null;
+  /** What it is waiting on, e.g. the tool name behind a permission request. */
+  waitingOn: string | null;
   changedFiles: number;
   insertions: number;
   deletions: number;

@@ -79,9 +79,11 @@ export interface EarlyResponse {
 /**
  * Ingests every incoming event (hook events, cooperative emits, host
  * observations and heartbeats) into the durable execution model. Hook-agent
- * events only update state here — user-facing notification for those stays on
- * the existing upstream path. Emit events notify through the monitor notifier
- * (dedup + rate limit + persistence).
+ * events update state here and their user-facing notification stays on the
+ * existing upstream path — except a question the agent may answer itself
+ * (`PermissionRequest`, approval `Notification`), which is held here so the
+ * monitor can push it only once the wait has proven real. Emit events notify
+ * through the monitor notifier (dedup + rate limit + persistence).
  */
 export class MonitorHub {
   private readonly startedMs = Date.now();
@@ -97,7 +99,12 @@ export class MonitorHub {
       if (incoming.agent === "emit") {
         return await this.handleEmit(incoming, tokenName, nowMs);
       }
-      this.applyHookState(incoming, tokenName, nowMs);
+      if (this.applyHookState(incoming, tokenName, nowMs)) {
+        return {
+          status: 200,
+          body: { ok: true, notified: false, reason: "waiting_grace" },
+        };
+      }
       return null;
     } catch (error) {
       // Failure isolation: monitoring must never break the notify pipeline.
@@ -111,12 +118,22 @@ export class MonitorHub {
 
   // ── hook state ingestion ─────────────────────────────────────────────────
 
-  private applyHookState(incoming: IncomingAgentEvent, tokenName: string, nowMs: number): void {
+  /**
+   * Record the state a hook event reports. Returns true when the event asked
+   * for permission and the grace policy is holding that question back — the
+   * caller then answers the adapter without notifying, and the monitor decides
+   * later whether the wait was real.
+   */
+  private applyHookState(
+    incoming: IncomingAgentEvent,
+    tokenName: string,
+    nowMs: number,
+  ): boolean {
     const raw = isRecord(incoming.raw) ? incoming.raw : {};
     const sessionId = str(raw.session_id) ?? str(raw.thread_id) ?? str(raw["thread-id"]);
-    if (!sessionId) return;
+    if (!sessionId) return false;
     const hookEvent = str(raw.hook_event_name);
-    if (!hookEvent) return;
+    if (!hookEvent) return false;
 
     const cwd = str(raw.cwd);
     const key = `${tokenName}:${sessionId}`;
@@ -146,10 +163,16 @@ export class MonitorHub {
       fields.status = "ACTIVE";
       fields.lastActivityMs = nowMs;
       fields.turnStartedMs = nowMs;
-      fields.lastMessage = str(raw.prompt)?.slice(0, 200) ?? null;
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
+      // The prompt itself is deliberately not stored: it is the one piece of
+      // text on this path that must never reach a push, and keeping it out of
+      // the row makes that structural rather than a redaction race.
       clearKinds = ["waiting", "blocked", "failed", "possible_stall", "resumed"];
     } else if (hookEvent === "PermissionRequest") {
       fields.status = "WAITING_USER";
+      fields.waitingSinceMs = nowMs;
+      fields.waitingOn = str(raw.tool_name)?.slice(0, 200) ?? null;
       clearKinds = ["waiting"];
     } else if (hookEvent === "Stop") {
       const session = this.deps.store.getSession(key);
@@ -161,6 +184,10 @@ export class MonitorHub {
         fields.status = "ACTIVE";
       }
       fields.turnStartedMs = null;
+      // A turn boundary ends any pending question with it: what is left is a
+      // review, and the upstream completion push already says so.
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
       // Remember the turn this Stop closed: the push built from this event is
       // about that turn, and the row no longer carries its start.
       fields.lastTurnMs = turnStartedMs == null ? null : nowMs - turnStartedMs;
@@ -170,18 +197,28 @@ export class MonitorHub {
       // Qoder/Claude-Code user-facing prompt (permission or idle): the agent
       // is blocked on a human, not on work.
       fields.status = "WAITING_USER";
+      fields.waitingSinceMs = nowMs;
+      fields.waitingOn = str(raw.message)?.slice(0, 200) ?? null;
       fields.lastMessage = str(raw.message)?.slice(0, 200) ?? null;
     } else if (hookEvent === "StopFailure" || hookEvent === "SessionEnd") {
       fields.status = hookEvent === "StopFailure" ? "FAILED" : "COMPLETED";
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
     } else {
-      return;
+      return false;
     }
 
     this.deps.store.updateSession(key, fields);
     if (clearKinds.length > 0) {
       this.deps.store.clearFingerprint(key, clearKinds);
     }
+    // Only a genuine question is held: a `Stop` that ends a long turn is a
+    // review, and the upstream completion push for it is the point of the wait.
+    return (
+      (hookEvent === "PermissionRequest" || hookEvent === "Notification") &&
+      this.deps.config.waitingGraceSeconds > 0
+    );
   }
 
   // ── cooperative emit ─────────────────────────────────────────────────────

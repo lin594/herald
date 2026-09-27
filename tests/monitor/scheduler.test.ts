@@ -21,6 +21,7 @@ const config: MonitorConfig = {
   quietSeconds: 600,
   stallSeconds: 1500,
   heartbeatMaxPerHour: 3,
+  waitingGraceSeconds: 60,
   hostHeartbeatTimeoutSeconds: 180,
   watchIntervalSeconds: 30,
   gitScanIntervalSeconds: 60,

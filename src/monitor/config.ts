@@ -28,6 +28,12 @@ export interface MonitorConfig {
   quietSeconds: number;
   stallSeconds: number;
   heartbeatMaxPerHour: number;
+  /**
+   * How long a session must stay blocked on a human before the wait is worth a
+   * push. Agents auto-approve plenty of requests within seconds, and a phone
+   * that rings for both teaches nothing. 0 restores notify-on-arrival.
+   */
+  waitingGraceSeconds: number;
   hostHeartbeatTimeoutSeconds: number;
   watchIntervalSeconds: number;
   gitScanIntervalSeconds: number;
@@ -124,6 +130,7 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     quietSeconds: Number(env.HERALD_QUIET_SECONDS ?? 600),
     stallSeconds: Number(env.HERALD_STALL_SECONDS ?? 1500),
     heartbeatMaxPerHour: Number(env.HERALD_HEARTBEAT_MAX_PER_HOUR ?? 3),
+    waitingGraceSeconds: Number(env.HERALD_WAITING_GRACE_SECONDS ?? 60),
     hostHeartbeatTimeoutSeconds: Number(env.HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS ?? 180),
     watchIntervalSeconds: Number(env.HERALD_WATCH_INTERVAL_SECONDS ?? 30),
     gitScanIntervalSeconds: Number(env.HERALD_GIT_SCAN_INTERVAL_SECONDS ?? 60),

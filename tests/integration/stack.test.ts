@@ -163,7 +163,7 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
     expect(session().agentType).toBe("qoder");
     expect(session().project).toBe("Repo A");
 
-    await hook({
+    const permission = await hook({
       hook_event_name: "PermissionRequest",
       session_id: "qd-1",
       cwd: "/work/repo-a",
@@ -171,7 +171,41 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
       tool_input: { command: "pnpm test", description: "Run the test suite" },
     });
     expect(session().status).toBe("WAITING_USER");
-    expect(h.sent.map((p) => p.body)).toContain("Run the test suite");
+    expect(session().waitingOn).toBe("Bash");
+    // The question is recorded, not pushed: agents answer plenty of these
+    // without a human, and a push for each one cannot be triaged.
+    expect(await permission.json()).toMatchObject({ notified: false, reason: "waiting_grace" });
+    expect(h.sent).toHaveLength(0);
+
+    // Answered inside the grace window — the turn closes on its own and nothing
+    // is ever said about the request.
+    await h.scheduler.run(Date.now() + 30_000);
+    expect(h.sent).toHaveLength(0);
+    await hook({
+      hook_event_name: "Stop",
+      session_id: "qd-1",
+      cwd: "/work/repo-a",
+      last_assistant_message: "ran the tests",
+    });
+    expect(session().status).toBe("ACTIVE");
+    expect(session().waitingSinceMs).toBeNull();
+    expect(h.sent).toHaveLength(0);
+
+    // A wait that outlasts the grace is real: one push, and only one.
+    await hook({
+      hook_event_name: "PermissionRequest",
+      session_id: "qd-1",
+      cwd: "/work/repo-a",
+      tool_name: "Bash",
+      tool_input: { command: "git push" },
+    });
+    await h.scheduler.run(Date.now() + 61_000);
+    await h.scheduler.run(Date.now() + 62_000);
+    const waits = h.sent.filter((p) => (p as { title?: string }).title?.includes("Need Input"));
+    expect(waits).toHaveLength(1);
+    expect(waits[0].body).toContain("Needs your approval: Bash");
+    expect(waits[0].urgency).toBe("time_sensitive");
+    h.sent.length = 0;
 
     // Stop arrives milliseconds after the prompt, so the shared completion gate
     // suppresses it: a short turn is neither a task completion nor a review.

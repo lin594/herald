@@ -31,7 +31,7 @@ Claude Code 侧支持这些 hooks：
 Codex 侧支持这些 hooks：
 
 - `UserPromptSubmit`：只用于服务端记录本轮开始时间，不推送手机通知
-- `PermissionRequest`：Codex 权限通知，默认不推送；在 adapter 配置里把 `notifyPermissionRequests` 设为 `true` 后才推送
+- `PermissionRequest`：只有 adapter 配置里 `notifyPermissionRequests` 为 `true` 时才上报（`./herald install-host` 会设成 `true`）。这个开关决定监控**能不能看见**这次请求，不是手机响不响：被看见的请求先记为等待，只有超过 `HERALD_WAITING_GRACE_SECONDS`（默认 60 秒）还没批，才推一条 `等你批准: Bash`。
 - `Stop`：长任务达到服务端完成阈值（默认 `120` 秒）后推送完成通知
 
 ## 手动通知开关
@@ -539,7 +539,7 @@ AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS=120
 
 长任务完成通知默认开启，阈值为 `120` 秒：任务运行超过 120 秒后，结束时才会推送完成通知。
 
-如果想关掉完成通知，把阈值设为 `0`。完成通知和 Codex 权限通知互相独立；Codex 权限通知由 adapter 配置里的 `notifyPermissionRequests` 控制，默认关闭。
+如果想关掉完成通知，把阈值设为 `0`。完成通知和 Codex 权限通知互相独立；权限请求是否上报由 adapter 配置里的 `notifyPermissionRequests` 控制（默认关闭），上报之后要不要推、什么时候推由服务端 `HERALD_WAITING_GRACE_SECONDS`（默认 60 秒）决定。
 
 启动服务：
 
@@ -562,7 +562,7 @@ cp examples/codex/codex.json ~/.config/agent-notify/codex.json
 {
   "serverUrl": "http://127.0.0.1:8787",
   "token": "my-long-random-token",
-  "notifyPermissionRequests": false
+  "notifyPermissionRequests": true
 }
 ```
 
@@ -570,7 +570,7 @@ cp examples/codex/codex.json ~/.config/agent-notify/codex.json
 
 - `serverUrl`：必填。AgentNotify 服务地址。
 - `token`：必填。只填 `.env` 里 `AGENT_NOTIFY_TOKENS` 冒号后面的部分。
-- `notifyPermissionRequests`：可选。是否推送 Codex `PermissionRequest` 权限通知，默认 `false`。桌面端使用自动审批时建议保持关闭；CLI 下需要手动批准时可设为 `true`。
+- `notifyPermissionRequests`：可选，默认 `false`，`./herald install-host` 会写成 `true`。它决定 adapter 是否转发 Codex `PermissionRequest`，也就是监控能不能看见这次等待——不是音量旋钮。转发上来的请求只有持续超过服务端 `HERALD_WAITING_GRACE_SECONDS`（默认 60 秒）还没被批掉，才推一次 `等你批准: Bash`；自动审批几秒内批掉的天然不会吵你。设成 `false` 是把监控蒙住，真正需要你的那次也不响了。
 - `timeoutMs`：可选。adapter 请求超时时间，单位是毫秒，默认 `2000`。
 - `debugLogPath`：可选。配置后，adapter 会把自己看到的每个事件写进这个 JSONL 文件，方便排查事件是否进入 adapter。默认不填。
 
@@ -658,7 +658,7 @@ pnpm dev
 
 运行一次超过 `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` 的任务。任务结束后会触发完成通知。短任务不会触发完成通知。
 
-如果你把 `notifyPermissionRequests` 设为 `true`，再调低 Codex 的权限并触发一次需要审批的操作，例如让它运行需要审批的 shell 命令。此时你应该收到标题为 `Approve permission` 或 `需要批准` 的通知。
+如果 `notifyPermissionRequests` 是 `true`，调低 Codex 的权限并触发一次需要审批的操作（例如让它跑一条需要审批的 shell 命令），然后**不要去批**。请求到达时什么都不发；大约 `HERALD_WAITING_GRACE_SECONDS`（默认 60 秒）后你会收到一条 `Codex · <项目> · 等你输入`，正文是 `等你批准: Bash`。在宽限窗口内批掉，手机就该一直安静——这正是想要的效果。
 
 ## 常用命令
 
@@ -917,7 +917,7 @@ tail -f ~/.config/agent-notify/claude-code-debug.jsonl
 3. `~/.codex/hooks.json` 里三个事件（`UserPromptSubmit`、`PermissionRequest`、`Stop`）是否都配了，command 是否指向 `node /绝对路径/.config/agent-notify/codex-agent-notify.mjs`。
 4. command 路径是否真实存在：`ls /绝对路径/.config/agent-notify/codex-agent-notify.mjs`。
 5. **Codex `/hooks` 是否已经 trust 这条 hook**。未 trust 前 Codex 会跳过非 managed hook，这是 Codex 最常见的「配了但不生效」原因。command 路径变化后也需要重新 trust。
-6. 如果只缺 Codex 权限通知，检查 `~/.config/agent-notify/codex.json` 里的 `notifyPermissionRequests` 是否为 `true`。默认是 `false`，只保留完成通知。
+6. 如果只缺 Codex 权限通知，检查 `~/.config/agent-notify/codex.json` 里的 `notifyPermissionRequests` 是否为 `true`；默认 `false` 会让监控完全看不到这次请求。再算上服务端的宽限：请求只在持续超过 `HERALD_WAITING_GRACE_SECONDS`（默认 60 秒）仍未被批时才推，窗口内自动批掉的那些本来就该安静。
 
 如果你正在排查 Codex 权限通知，先确认 `notifyPermissionRequests` 是 `true`，再用手动 payload 测试 adapter：
 
@@ -931,7 +931,7 @@ printf '{"hook_event_name":"PermissionRequest","session_id":"manual_debug","tool
 tail -f ~/.config/agent-notify/codex-debug.jsonl
 ```
 
-常见情况和 Claude Code 一致：没有新日志说明 hook 没执行或 config 读不到；`forwarded:false` 说明不是支持的事件；`forwarded:true` 但 `sent:false` 说明没送到服务端；`sent:true` 但没收到说明问题在 provider。
+常见情况和 Claude Code 一致：没有新日志说明 hook 没执行或 config 读不到；`forwarded:false` 说明不是支持的事件（权限请求要 `notifyPermissionRequests:true`）；`forwarded:true` 但 `sent:false` 说明没送到服务端；`sent:true` 却没有推送，要么是服务端把这次请求按宽限扣住了（`POST /events` 会回 `{"reason":"waiting_grace"}`，等满 `HERALD_WAITING_GRACE_SECONDS` 仍未批才推），要么问题在 provider。
 
 ### token 配了还是 401
 

@@ -98,6 +98,9 @@ writeJsonWithBackup(
     serverUrl,
     token: token.value,
     timeoutMs: 2000,
+    // Forward requests so the monitor can see the wait; the server's grace
+    // policy decides whether that wait becomes a push. Off = no permission
+    // information at all, not a quieter phone.
     notifyPermissionRequests: true,
     debugLogPath: join(configDir, "logs", "codex-hook.log"),
   },

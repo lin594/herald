@@ -130,4 +130,36 @@ describe("schema forward migration", () => {
     expect(store.getSession("macbook:s1")?.lastTurnMs).toBe(90_000);
     db2.close();
   });
+
+  it("adds the wait columns a volume from before the grace policy lacks", () => {
+    const migrated = join(dir, "waiting-migration.sqlite3");
+    const db = openDatabase(migrated);
+    new MonitorStore(db).upsertSession({
+      key: "macbook:s2",
+      sessionId: "s2",
+      agentType: "codex",
+      nowMs: T0,
+    });
+    // A session caught mid-wait by the upgrade must still be readable.
+    db.exec("ALTER TABLE sessions DROP COLUMN waiting_since_ms");
+    db.exec("ALTER TABLE sessions DROP COLUMN waiting_on");
+    db.close();
+
+    const db2 = openDatabase(migrated);
+    const store = new MonitorStore(db2);
+    const session = store.getSession("macbook:s2")!;
+    expect(session.waitingSinceMs).toBeNull();
+    expect(session.waitingOn).toBeNull();
+    store.updateSession("macbook:s2", { waitingSinceMs: T0 + 5, waitingOn: "Bash" });
+    expect(store.getSession("macbook:s2")).toMatchObject({
+      waitingSinceMs: T0 + 5,
+      waitingOn: "Bash",
+    });
+    store.updateSession("macbook:s2", { waitingSinceMs: null, waitingOn: null });
+    expect(store.getSession("macbook:s2")).toMatchObject({
+      waitingSinceMs: null,
+      waitingOn: null,
+    });
+    db2.close();
+  });
 });

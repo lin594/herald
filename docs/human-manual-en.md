@@ -31,7 +31,7 @@ Claude Code supports these hooks:
 Codex supports these hooks:
 
 - `UserPromptSubmit`: only records this turn's start time server-side; no phone notification.
-- `PermissionRequest`: Codex permission notifications, off by default; pushed only when `notifyPermissionRequests` is `true` in the adapter config.
+- `PermissionRequest`: forwarded only when `notifyPermissionRequests` is `true` in the adapter config (default `false`). That flag decides whether the monitor **sees** the request, not whether your phone rings: a request the monitor sees is recorded as a wait and pushed only if it is still pending after `HERALD_WAITING_GRACE_SECONDS` (60 s). Keep it `true` if you want "needs your approval" pushes at all; keep it `false` for total silence on permissions.
 - `Stop`: pushes a completion notification after the task exceeds the server completion threshold (default `120` seconds).
 
 ## Manual notification switch
@@ -537,7 +537,7 @@ AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS=120
 
 Long-task completion notifications are on by default, threshold `120` seconds: only after a task runs longer than 120 seconds is a completion notification pushed when it ends.
 
-To turn completion notifications off, set the threshold to `0`. Completion notifications and Codex permission notifications are independent; Codex permission notifications are controlled by `notifyPermissionRequests` in the adapter config and are off by default.
+To turn completion notifications off, set the threshold to `0`. Completion notifications and Codex permission notifications are independent; whether a permission request is even visible to the monitor is controlled by `notifyPermissionRequests` in the adapter config (off by default), and how long it must stay unanswered before it reaches your phone is `HERALD_WAITING_GRACE_SECONDS` on the server.
 
 Start the service:
 
@@ -560,7 +560,7 @@ The minimal config after copying:
 {
   "serverUrl": "http://127.0.0.1:8787",
   "token": "my-long-random-token",
-  "notifyPermissionRequests": false
+  "notifyPermissionRequests": true
 }
 ```
 
@@ -568,7 +568,7 @@ Configurable fields:
 
 - `serverUrl`: required. The AgentNotify server URL.
 - `token`: required. Only the part after the colon in `AGENT_NOTIFY_TOKENS`.
-- `notifyPermissionRequests`: optional. Whether to push Codex `PermissionRequest` notifications, default `false`. Keep it off for Codex Desktop auto-approval; set it to `true` when using CLI flows that need manual approval.
+- `notifyPermissionRequests`: optional, default `false`. Whether the adapter forwards Codex `PermissionRequest` at all — `./herald install-host` sets it to `true`. It is not the phone-volume knob: a forwarded request becomes a push only if it is still unanswered after `HERALD_WAITING_GRACE_SECONDS` (60 s) on the server, which is what keeps auto-approved requests silent.
 - `timeoutMs`: optional. Adapter request timeout in milliseconds, default `2000`.
 - `debugLogPath`: optional. When set, the adapter writes every event it sees to this JSONL file, to help confirm whether events reach the adapter. Off by default.
 
@@ -656,7 +656,7 @@ pnpm dev
 
 Run a task longer than `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`. A completion notification fires when the task ends. Short tasks do not trigger completion notifications.
 
-If you set `notifyPermissionRequests` to `true`, lower Codex's permissions and trigger an action that needs approval, e.g. have it run a shell command that needs approval. You should then get a notification titled `Approve permission` or `需要批准`.
+If `notifyPermissionRequests` is `true`, lower Codex's permissions and trigger an action that needs approval, e.g. have it run a shell command that needs approval, and leave it unanswered. Nothing fires when the request arrives; about `HERALD_WAITING_GRACE_SECONDS` later (60 s by default) you get one notification titled `Codex · <project> · Need Input` / `等你输入` reading `Needs your approval: Bash`. Approve it inside the grace window and the phone stays silent — that is the point.
 
 ## Common commands
 
@@ -915,7 +915,7 @@ Check in order:
 3. Whether all three events (`UserPromptSubmit`, `PermissionRequest`, `Stop`) are configured in `~/.codex/hooks.json`, and the command points to `node /absolute/path/.config/agent-notify/codex-agent-notify.mjs`.
 4. Whether the command path actually exists: `ls /absolute/path/.config/agent-notify/codex-agent-notify.mjs`.
 5. **Whether Codex `/hooks` has trusted this hook.** Until trusted, Codex skips non-managed hooks — this is the most common "configured but not working" cause with Codex. After the command path changes you must re-trust it too.
-6. If only Codex permission notifications are missing, check whether `notifyPermissionRequests` is `true` in `~/.config/agent-notify/codex.json`. The default is `false`, keeping only completion notifications.
+6. If only Codex permission notifications are missing, check whether `notifyPermissionRequests` is `true` in `~/.config/agent-notify/codex.json`. The default is `false`, which hides the request from the monitor entirely. Then allow for the grace: a request pushes only while it is still unanswered `HERALD_WAITING_GRACE_SECONDS` (60 s) later, so anything auto-approved within that window is correctly silent.
 
 If you are debugging Codex permission notifications, first confirm `notifyPermissionRequests` is `true`, then test the adapter with a manual payload:
 
@@ -929,7 +929,7 @@ Then check the adapter debug log (requires `debugLogPath` set in `codex.json`):
 tail -f ~/.config/agent-notify/codex-debug.jsonl
 ```
 
-Common cases are the same as Claude Code: no new logs means the hook didn't execute or the config can't be read; `forwarded:false` means it's not a supported event; `forwarded:true` but `sent:false` means it didn't reach the server; `sent:true` but no notification means the problem is the provider.
+Common cases are the same as Claude Code: no new logs means the hook didn't execute or the config can't be read; `forwarded:false` means it's not a supported event; `forwarded:true` but `sent:false` means it didn't reach the server; `sent:true` with no push means either the permission grace (the request is only announced if it stays pending, and `POST /events` answers `{"reason":"waiting_grace"}` when it is being held) or the provider.
 
 ### Configured the token but still 401
 

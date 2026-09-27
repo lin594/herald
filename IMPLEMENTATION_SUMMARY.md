@@ -5,7 +5,7 @@ a long-lived local monitor for hours-long AI-agent tasks that pushes only
 state changes that matter to iPhone via Bark. Deliberately NOT a rewrite —
 upstream notify/format/cooldown machinery is kept and reused.
 
-381 tests pass (`pnpm test`), typecheck clean, live stack verified in
+398 tests pass (`pnpm test`), typecheck clean, live stack verified in
 Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 
 ## VERIFIED (implemented + proven by test or live run)
@@ -41,8 +41,22 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
   `possible_stall` at `active`, a session with nothing to read produced the
   clock-alone wording at `passive`, `HERALD_SEVERITY_MAP=possible_stall=debug`
   silenced both stalls, and `emit started` never left the process.
+- A permission request is a question the agent may answer itself. Under
+  auto-approval most are gone in seconds, so the hub records the wait
+  (`waiting_since_ms`, `waiting_on`) and answers the adapter
+  `{notified:false, reason:"waiting_grace"}` instead of pushing; only a wait still
+  open after `HERALD_WAITING_GRACE_SECONDS` (60 s, host available) becomes **one**
+  `等你批准: Bash` at `critical`. The body is clock-free so ten ticks are one push,
+  activity or a turn boundary clears the facts so the next request is a fresh
+  episode, and cooperative `emit waiting`/`blocked` stay immediate because an agent
+  that calls the API to ask means it. Live proof on the running container with a
+  mock Bark: request held → silence at 7 s, exactly one `timeSensitive` push at
+  16 s, still one at 41 s, `Stop` cleared it, a second request pushed again
+  (`等你批准: Write`), and no prompt text appeared in any push.
 - Adaptive heartbeat 15 min first / 30 min after, content-gated, ≤3/h/session
-  (enforced in notifier, proven in integration test H).
+  (enforced in notifier, proven in integration test H). It now opens with
+  `最新结论: …` / `Last said: …` — the agent's own last message — so the periodic
+  "still running" ping reports a conclusion instead of a monitor-written summary.
 - FAILED×N identical dedup by (kind+body) fingerprint; any interleaved
   progress edge re-arms → second genuine failure notifies again.
 - Sleep/wake: bridge reports sleep-gap; on host return all clocks re-baseline,
@@ -59,7 +73,8 @@ Docker/OrbStack against a mock Bark; Host Bridge live on macOS LaunchAgent.
 - Qoder (`agent:"qoder"`): same hook family, own formatter + adapter, and the
   same `CodexSessionPolicy` turn gate (identical UserPromptSubmit/Stop
   semantics). PermissionRequest and approval `Notification`s land in
-  WAITING_USER with a timeSensitive push — integration test C-qoder. Live E2E
+  WAITING_USER and are held by the same grace, then push once at
+  `timeSensitive` — integration test C-qoder. Live E2E
   against mock Bark on a fixture transcript mount: prompt→ACTIVE, idle→QUIET,
   stall→`notice` (delivered at Bark `active`), transcript growth→"Resumed",
   `Stop` stayed ACTIVE; all

@@ -12,6 +12,11 @@ Two channels, both landing on the same server — never talk to Bark directly.
 merges the adapter into `~/.codex/hooks.json` (`Stop`, `UserPromptSubmit`,
 `PermissionRequest`), and installs the Host Bridge LaunchAgent.
 
+It also sets `notifyPermissionRequests: true`, which only decides whether the
+adapter *forwards* permission requests; the server's grace decides whether one
+becomes a push. Forward them — with the flag off the monitor cannot tell a wait
+that needs you from a wait you never knew about.
+
 One-time manual step: Codex skips untrusted hooks until you approve them once
 in the TUI (`/hooks`). Until then no hook events arrive — the monitor still
 works via emit + observations.
@@ -49,15 +54,23 @@ the user file, so a repo can opt in or out independently.
 
 | Qoder hook event | session state | phone |
 |---|---|---|
-| `UserPromptSubmit` | ACTIVE, turn clock starts | — |
-| `PermissionRequest` | WAITING_USER | timeSensitive |
-| `Notification` (`permission_prompt` only) | WAITING_USER | timeSensitive |
-| `Stop` | long turn → WAITING_USER ("Ready to review"); short turn suppressed by the shared completion gate | active |
+| `UserPromptSubmit` | ACTIVE, turn clock starts. Clears any pending wait | — |
+| `PermissionRequest` | WAITING_USER + the wait is timestamped | **held**: only if still pending after `HERALD_WAITING_GRACE_SECONDS` (60 s) |
+| `Notification` (`permission_prompt` only) | WAITING_USER + the wait is timestamped | same grace, then the same push |
+| `Stop` | long turn → WAITING_USER ("Ready to review"); short turn suppressed by the shared completion gate. Clears any pending wait | active |
 | `StopFailure` | FAILED | timeSensitive |
 
 Hook pushes are formatted by the upstream pipeline, which sets its own delivery
 level; the monitor's tier policy (`HERALD_MIN_SEVERITY`) governs the state it
 observes itself and every `emit` push below.
+
+One exception, and it is the difference between a useful phone and an ignored
+one: under auto-approval most `PermissionRequest`s answer themselves in seconds,
+so the monitor answers the adapter `{"notified":false,"reason":"waiting_grace"}`
+and holds the question back. It reports the wait as `等你批准: Bash` / `Needs your
+approval: Bash` only while the agent is *still* stuck past the grace, once per
+episode. Set `HERALD_WAITING_GRACE_SECONDS=0` for notify-on-arrival, and see
+[notification-policy.md](notification-policy.md#a-pending-question-is-not-yet-an-ask).
 
 Qoder's `Stop` is a *turn* boundary, so it never marks the task done — use
 `emit completed` for that. `SessionEnd` (clear/logout/resume) is not forwarded
@@ -90,7 +103,7 @@ Or from a shell inside the container: `./herald emit <type> "<message>"`
 |---|---|---|---|
 | `started` | long task genuinely began | STARTED | `debug` — not delivered at the default floor |
 | `milestone` | phase done, artifact produced | ACTIVE | `notice` |
-| `waiting` | needs a human decision now | WAITING_USER | `critical` |
+| `waiting` | needs a human decision now | WAITING_USER | `critical`, never held by the grace: an agent that calls the API to ask means it |
 | `blocked` | stuck on external thing, needs attention | BLOCKED | `critical` |
 | `failed` | task cannot continue | FAILED | `critical` |
 | `completed` | task finished, result ready | COMPLETED | `notice` |
@@ -123,7 +136,9 @@ routine progress. When you need user input, emit "waiting" BEFORE stopping.
 
 Upstream mute switches (`/agent-notify` session/timed/persistent mute) still
 apply to hook-origin notifications. Monitor-side silence, from gentlest to
-bluntest: raise `HERALD_MIN_SEVERITY` (`notice` keeps completions, stalls and
-everything that needs a human; `critical` keeps only waiting/blocked/failed),
-retune one kind with `HERALD_SEVERITY_MAP`, emit nothing, or
-`HERALD_ENABLED=false` + restart for total monitor quiet.
+bluntest: lengthen `HERALD_WAITING_GRACE_SECONDS` (a permission ask then needs to
+stay unanswered longer before it pages you), raise `HERALD_MIN_SEVERITY`
+(`notice` keeps completions, stalls and everything that needs a human;
+`critical` keeps only waiting/blocked/failed), retune one kind with
+`HERALD_SEVERITY_MAP`, emit nothing, or `HERALD_ENABLED=false` + restart for
+total monitor quiet.

@@ -12,6 +12,20 @@ const { DatabaseSync } = require("node:sqlite") as {
 
 const SCHEMA_VERSION = "1";
 
+/**
+ * Columns added after the first release. An existing volume keeps its rows and
+ * only gains what is missing, so upgrading never asks the operator to delete
+ * `/data`.
+ */
+const ADDED_COLUMNS: { name: string; ddl: string }[] = [
+  { name: "last_turn_ms", ddl: "ALTER TABLE sessions ADD COLUMN last_turn_ms INTEGER" },
+  {
+    name: "waiting_since_ms",
+    ddl: "ALTER TABLE sessions ADD COLUMN waiting_since_ms INTEGER",
+  },
+  { name: "waiting_on", ddl: "ALTER TABLE sessions ADD COLUMN waiting_on TEXT" },
+];
+
 const MIGRATIONS: string[] = [
   `
   CREATE TABLE IF NOT EXISTS sessions (
@@ -31,6 +45,8 @@ const MIGRATIONS: string[] = [
     last_heartbeat_ms INTEGER,
     last_stage TEXT,
     last_message TEXT,
+    waiting_since_ms INTEGER,
+    waiting_on TEXT,
     changed_files INTEGER NOT NULL DEFAULT 0,
     insertions INTEGER NOT NULL DEFAULT 0,
     deletions INTEGER NOT NULL DEFAULT 0,
@@ -116,8 +132,8 @@ export function openDatabase(dbPath: string): DatabaseSyncType {
           .all() as { name: string }[]
       ).map((row) => row.name),
     );
-    if (!columns.has("last_turn_ms")) {
-      db.exec("ALTER TABLE sessions ADD COLUMN last_turn_ms INTEGER");
+    for (const column of ADDED_COLUMNS) {
+      if (!columns.has(column.name)) db.exec(column.ddl);
     }
   }
   return db;

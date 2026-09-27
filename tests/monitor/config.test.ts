@@ -67,3 +67,14 @@ describe("severity policy", () => {
     }
   });
 });
+
+describe("waiting grace", () => {
+  it("waits a minute before calling a permission request a real wait", () => {
+    expect(parseMonitorConfig({}).waitingGraceSeconds).toBe(60);
+  });
+
+  it("reads HERALD_WAITING_GRACE_SECONDS, and 0 keeps notify-on-arrival", () => {
+    expect(parseMonitorConfig({ HERALD_WAITING_GRACE_SECONDS: "5" }).waitingGraceSeconds).toBe(5);
+    expect(parseMonitorConfig({ HERALD_WAITING_GRACE_SECONDS: "0" }).waitingGraceSeconds).toBe(0);
+  });
+});

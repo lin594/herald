@@ -19,6 +19,7 @@ const config: MonitorConfig = {
   quietSeconds: 600,
   stallSeconds: 1500,
   heartbeatMaxPerHour: 3,
+  waitingGraceSeconds: 60,
   hostHeartbeatTimeoutSeconds: 180,
   watchIntervalSeconds: 30,
   gitScanIntervalSeconds: 60,
@@ -51,6 +52,8 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
     lastHeartbeatMs: null,
     lastStage: null,
     lastMessage: null,
+    waitingSinceMs: null,
+    waitingOn: null,
     changedFiles: 0,
     insertions: 0,
     deletions: 0,
@@ -64,6 +67,8 @@ const quiet = {
   processActive: false,
   transcriptActive: false,
 };
+
+const zh: MonitorConfig = { ...config, language: "zh" };
 
 describe("evaluateSessionTick", () => {
   it("ACTIVE -> QUIET after the quiet window", () => {
@@ -341,8 +346,6 @@ describe("evaluateSessionTick", () => {
 });
 
 describe("notification readability", () => {
-  const zh: MonitorConfig = { ...config, language: "zh" };
-
   function stall(cfg: MonitorConfig, overrides: Partial<SessionRecord> = {}) {
     const result = evaluateSessionTick(
       {
@@ -433,5 +436,95 @@ describe("notification readability", () => {
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
     expect(beat?.body).toBe("本轮用时 10 分钟 · 任务已跑 15 分钟");
+  });
+});
+
+describe("waiting grace", () => {
+  const waiting = (overrides: Partial<SessionRecord> = {}) =>
+    session({ status: "WAITING_USER", waitingSinceMs: T0, waitingOn: "Bash", ...overrides });
+
+  const waits = (result: ReturnType<typeof evaluateSessionTick>) =>
+    result.notifications.filter((n) => n.kind === "waiting");
+
+  it("says nothing about a question the agent answers inside the grace", () => {
+    const result = evaluateSessionTick({ session: waiting(), ...quiet }, config, T0 + 59_000);
+    expect(waits(result)).toHaveLength(0);
+  });
+
+  it("pushes when the wait outlasts the grace, at the strength of a real block", () => {
+    const result = evaluateSessionTick({ session: waiting(), ...quiet }, config, T0 + 61_000);
+    const push = waits(result)[0];
+    expect(push).toBeDefined();
+    expect(push.body).toBe("Needs your approval: Bash");
+    const severity = resolveSeverity(push, config);
+    expect(severity).toBe("critical");
+    expect(SEVERITY_DELIVERY[severity]).toBe("timeSensitive");
+  });
+
+  it("carries no clock, so one wait is one push however many ticks pass", () => {
+    const late = evaluateSessionTick({ session: waiting(), ...quiet }, config, T0 + 61_000);
+    const later = evaluateSessionTick({ session: waiting(), ...quiet }, config, T0 + 400_000);
+    expect(later.notifications).toEqual(late.notifications);
+  });
+
+  it("clears the wait facts on activity so the next question gets its own grace", () => {
+    const result = evaluateSessionTick(
+      { session: waiting(), hostAvailable: true, processActive: true, transcriptActive: false },
+      config,
+      T0 + 61_000,
+    );
+    expect(result.updates.status).toBe("ACTIVE");
+    expect(result.updates.waitingSinceMs).toBeNull();
+    expect(result.updates.waitingOn).toBeNull();
+    expect(waits(result)).toHaveLength(0);
+  });
+
+  it("stays quiet about a pending approval while the host is unreachable", () => {
+    const result = evaluateSessionTick(
+      { session: waiting(), hostAvailable: false, processActive: false, transcriptActive: false },
+      config,
+      T0 + 61_000,
+    );
+    expect(waits(result)).toHaveLength(0);
+  });
+
+  it("names what is pending, and degrades to the bare ask without it", () => {
+    const bare = evaluateSessionTick(
+      { session: waiting({ waitingOn: null }), ...quiet },
+      config,
+      T0 + 61_000,
+    );
+    expect(waits(bare)[0].body).toBe("Needs your approval");
+    const zhResult = evaluateSessionTick({ session: waiting(), ...quiet }, zh, T0 + 61_000);
+    expect(waits(zhResult)[0].body).toBe("等你批准：Bash");
+  });
+});
+
+describe("heartbeat conclusion", () => {
+  it("leads with what the agent itself last said", () => {
+    const beat = evaluateSessionTick(
+      {
+        session: session({
+          lastActivityMs: T0 + 900_000,
+          lastMessage: "migrations applied, 44 files touched",
+        }),
+        ...quiet,
+      },
+      config,
+      T0 + 901_000,
+    ).notifications.find((n) => n.kind === "heartbeat");
+    expect(beat?.body.split("\n")[0]).toBe("Last said: migrations applied, 44 files touched");
+  });
+
+  it("says the same in Chinese", () => {
+    const beat = evaluateSessionTick(
+      {
+        session: session({ lastActivityMs: T0 + 900_000, lastMessage: "迁移已应用" }),
+        ...quiet,
+      },
+      zh,
+      T0 + 901_000,
+    ).notifications.find((n) => n.kind === "heartbeat");
+    expect(beat?.body.split("\n")[0]).toBe("最新结论: 迁移已应用");
   });
 });

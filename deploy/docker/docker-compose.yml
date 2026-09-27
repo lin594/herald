@@ -39,6 +39,9 @@ services:
       # without a code change (docs/notification-policy.md).
       HERALD_MIN_SEVERITY: "${HERALD_MIN_SEVERITY:-info}"
       HERALD_SEVERITY_MAP: "${HERALD_SEVERITY_MAP:-}"
+      # A permission request only becomes a push once the agent has stayed stuck
+      # this long: auto-approval answers most of them by itself. 0 = notify now.
+      HERALD_WAITING_GRACE_SECONDS: "${HERALD_WAITING_GRACE_SECONDS:-60}"
       HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS: "${HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS:-180}"
       HERALD_WATCH_INTERVAL_SECONDS: "${HERALD_WATCH_INTERVAL_SECONDS:-30}"
       HERALD_GIT_SCAN_INTERVAL_SECONDS: "${HERALD_GIT_SCAN_INTERVAL_SECONDS:-60}"

@@ -28,6 +28,8 @@ export interface TickResult {
     status: SessionRecord["status"];
     lastActivityMs: number;
     lastHeartbeatMs: number;
+    waitingSinceMs: number | null;
+    waitingOn: string | null;
   }>;
   notifications: DecidedNotification[];
   clearedDedupKinds: string[];
@@ -100,7 +102,14 @@ function heartbeatBody(
     language,
   );
   const details = detailLines(session, language);
-  return (head ? [head, ...details] : details).join("\n");
+  // The point of a "still alive" push is what the agent has to say, not that a
+  // clock is still running — so its own last words lead, when it has said any.
+  const conclusion = session.lastMessage
+    ? [
+        `${language === "zh" ? "最新结论" : "Last said"}: ${session.lastMessage}`,
+      ]
+    : [];
+  return [...conclusion, ...(head ? [head] : []), ...details].join("\n");
 }
 
 /** Display name used for notification titles and Bark group filtering. */
@@ -158,7 +167,34 @@ export function evaluateSessionTick(
     if (needsUser && anyActivity) {
       result.updates.status = "ACTIVE";
       result.updates.lastActivityMs = nowMs;
+      result.updates.waitingSinceMs = null;
+      result.updates.waitingOn = null;
       result.clearedDedupKinds.push("waiting", "blocked", "possible_stall", "failed");
+      return result;
+    }
+    // A permission request is a question the agent may answer itself: Codex
+    // auto-approves plenty of them within seconds. So the request is recorded
+    // and only a wait that outlasts the grace becomes a push — the difference
+    // between "needs you" and "asked you".
+    if (
+      session.status === "WAITING_USER" &&
+      session.waitingSinceMs != null &&
+      ctx.hostAvailable &&
+      nowMs - session.waitingSinceMs >= config.waitingGraceSeconds * 1000
+    ) {
+      // Deliberately clock-free: this branch is re-evaluated every tick, and a
+      // body that changed each time would defeat fingerprint dedup and turn one
+      // real wait into a stream of reminders.
+      result.notifications.push({
+        kind: "waiting",
+        title: titleFor(session, "waiting", config.language),
+        body: [
+          config.language === "zh"
+            ? `等你批准${session.waitingOn ? `：${session.waitingOn}` : ""}`
+            : `Needs your approval${session.waitingOn ? `: ${session.waitingOn}` : ""}`,
+          ...contextLines(session, config.language),
+        ].join("\n"),
+      });
     }
     return result;
   }
