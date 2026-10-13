@@ -9,7 +9,10 @@ import {
   observeWorkspace,
   scanTranscriptDir,
   scanQoderProjects,
-  transcriptTurnEvidence,
+  classifyTranscriptTail,
+  latestCodexProgress,
+  readTranscriptTail,
+  type PublicProgress,
   type GitSummary,
   type TranscriptStat,
   type TurnEvidence,
@@ -42,7 +45,7 @@ export class MonitorScheduler {
   private transcriptCache = new Map<string, TranscriptStat>();
   private readonly turnEvidenceCache = new Map<
     string,
-    { version: string; evidence: TurnEvidence | null }
+    { version: string; evidence: TurnEvidence | null; progress: PublicProgress | null }
   >();
 
   constructor(
@@ -97,7 +100,7 @@ export class MonitorScheduler {
     await this.collectWorkspaceFacts(nowMs);
 
     for (const session of this.store.listSessions()) {
-      if (session.status === "COMPLETED" || session.status === "UNKNOWN") continue;
+      if (session.status === "COMPLETED") continue;
       const hostAvailable = this.isHostAvailable(session, nowMs);
       const observation = session.sessionId ? this.observations.get(session.sessionId) : undefined;
       const processActive =
@@ -116,8 +119,12 @@ export class MonitorScheduler {
       // is genuinely unobservable, and the state machine says so.
       let turnInFlight: boolean | null;
       if (session.sessionId && tf) {
-        const evidence = await this.turnEvidence(session.sessionId, tf);
-        turnInFlight = evidence === null ? null : evidence === "in_flight";
+        const facts = await this.turnEvidence(session.sessionId, tf);
+        turnInFlight = facts.evidence === null ? session.turnStartedMs !== null ? true : null : facts.evidence === "in_flight";
+        if (session.agentType === "codex" && session.turnStartedMs !== null && facts.progress && facts.progress.atMs >= session.turnStartedMs) {
+          session.lastMessage = facts.progress.message;
+          this.store.updateSession(session.key, { lastMessage: facts.progress.message });
+        }
       } else if (session.turnStartedMs !== null) {
         turnInFlight = true;
       } else {
@@ -273,13 +280,14 @@ export class MonitorScheduler {
   private async turnEvidence(
     sessionId: string,
     stat: TranscriptStat,
-  ): Promise<TurnEvidence | null> {
+  ): Promise<{ evidence: TurnEvidence | null; progress: PublicProgress | null }> {
     const version = `${stat.size}:${Math.round(stat.mtimeMs)}`;
     const cached = this.turnEvidenceCache.get(sessionId);
-    if (cached && cached.version === version) return cached.evidence;
-    const evidence = await transcriptTurnEvidence(stat.path);
-    this.turnEvidenceCache.set(sessionId, { version, evidence });
-    return evidence;
+    if (cached && cached.version === version) return cached;
+    const lines = await readTranscriptTail(stat.path, 256 * 1024);
+    const facts = { version, evidence: classifyTranscriptTail(lines), progress: latestCodexProgress(lines) };
+    this.turnEvidenceCache.set(sessionId, facts);
+    return facts;
   }
 
   private async collectWorkspaceFacts(nowMs: number): Promise<void> {

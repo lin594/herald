@@ -114,9 +114,42 @@ describe("herald-host bridge", () => {
     expect(posts.map((p) => p.path)).toEqual(["/host-heartbeat", "/observations"]);
     expect(posts[0].body.sleep_gap_seconds).toBe(3600);
     expect(posts[1].body.sessions).toEqual([
-      { session_id: UUID, observed_at_ms: T0, processes: [{ pid: 1, command: "codex" }] },
-      { session_id: QODER_UUID, observed_at_ms: T0, processes: [{ pid: 1, command: "codex" }] },
+      { session_id: UUID, observed_at_ms: T0, processes: [] },
+      { session_id: QODER_UUID, observed_at_ms: T0, processes: [] },
     ]);
     expect(posts[1].body.sleep_gap_seconds).toBe(3600);
   });
+});
+
+
+it("attributes an explicit resumed process to its own session only", async () => {
+  const posts: Record<string, unknown>[] = [];
+  await tickOnce({ serverUrl: "http://server", token: "token", codexSessionsDir: "/unused", qoderProjectsDir: "/unused", intervalSeconds: 30 }, {}, T0, {
+    collectProcesses: async () => [{ pid: 1, command: "codex" }, { pid: 2, command: `codex resume ${UUID}` }],
+    scanActiveSessionIds: () => [UUID], scanActiveQoderSessionIds: () => [QODER_UUID],
+    postJson: async (_url, _token, path, body) => { if (path === "/observations") posts.push(body); return true; },
+  });
+  expect(posts[0].sessions).toEqual([
+    { session_id: UUID, observed_at_ms: T0, processes: [{ pid: 2, command: `codex resume ${UUID}` }] },
+    { session_id: QODER_UUID, observed_at_ms: T0, processes: [] },
+  ]);
+});
+
+
+it("keeps observing a long resumed process after its transcript is no longer recent", async () => {
+  let observed: unknown;
+  await tickOnce({ serverUrl: "http://server", token: "token", codexSessionsDir: "/unused", qoderProjectsDir: "/unused", intervalSeconds: 30 }, {}, T0, {
+    collectProcesses: async () => [{ pid: 2, command: `codex resume ${UUID}` }],
+    scanActiveSessionIds: () => [], scanActiveQoderSessionIds: () => [],
+    postJson: async (_url, _token, path, body) => { if (path === "/observations") observed = body.sessions; return true; },
+  });
+  expect(observed).toEqual([{ session_id: UUID, observed_at_ms: T0, processes: [{ pid: 2, command: `codex resume ${UUID}` }] }]);
+});
+
+it("uses the thread id from continuation rollout names", () => {
+  const root = join(tmpdir(), `herald-continuation-${T0}`);
+  const day = join(root, "2026", "10", "13");
+  mkdirSync(day, { recursive: true });
+  writeFileSync(join(day, `rollout-2026-10-13T09-00-00-${UUID}_${QODER_UUID}.jsonl`), "{}\n");
+  expect(scanActiveSessionIds(root, T0)).toEqual([UUID]);
 });

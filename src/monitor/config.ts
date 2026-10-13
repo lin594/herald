@@ -34,6 +34,8 @@ export interface MonitorConfig {
    * that rings for both teaches nothing. 0 restores notify-on-arrival.
    */
   waitingGraceSeconds: number;
+  /** Opt in only when a human, rather than approve-for-me, handles approvals. */
+  codexApprovalAlerts: boolean;
   hostHeartbeatTimeoutSeconds: number;
   watchIntervalSeconds: number;
   gitScanIntervalSeconds: number;
@@ -125,12 +127,13 @@ export function parseMonitorConfig(env: NodeJS.ProcessEnv): MonitorConfig {
     enabled: (env.HERALD_ENABLED ?? "true") !== "false",
     dbPath: env.HERALD_DB_PATH ?? "./data/monitor.sqlite3",
     tickSeconds: Number(env.HERALD_TICK_SECONDS ?? 15),
-    heartbeatFirstSeconds: Number(env.HERALD_HEARTBEAT_FIRST_SECONDS ?? 900),
+    heartbeatFirstSeconds: Number(env.HERALD_HEARTBEAT_FIRST_SECONDS ?? 1800),
     heartbeatNormalSeconds: Number(env.HERALD_HEARTBEAT_NORMAL_SECONDS ?? 1800),
     quietSeconds: Number(env.HERALD_QUIET_SECONDS ?? 600),
     stallSeconds: Number(env.HERALD_STALL_SECONDS ?? 1500),
     heartbeatMaxPerHour: Number(env.HERALD_HEARTBEAT_MAX_PER_HOUR ?? 3),
     waitingGraceSeconds: Number(env.HERALD_WAITING_GRACE_SECONDS ?? 60),
+    codexApprovalAlerts: z.enum(["true", "false"]).default("false").parse(env.HERALD_CODEX_APPROVAL_ALERTS) === "true",
     hostHeartbeatTimeoutSeconds: Number(env.HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS ?? 180),
     watchIntervalSeconds: Number(env.HERALD_WATCH_INTERVAL_SECONDS ?? 30),
     gitScanIntervalSeconds: Number(env.HERALD_GIT_SCAN_INTERVAL_SECONDS ?? 60),

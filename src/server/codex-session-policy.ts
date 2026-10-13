@@ -131,6 +131,11 @@ export class CodexSessionPolicy {
       };
     }
 
+    if (["PreToolUse", "PostToolUse", "Interrupt", "SessionEnd"].includes(sourceEvent ?? "")) {
+      if (id && (sourceEvent === "Interrupt" || sourceEvent === "SessionEnd")) this.deleteTurn(this.key(tokenName, id));
+      return { action: "suppress", reason: "state_recorded", sourceEvent, sessionId: id };
+    }
+
     if (sourceEvent === "Stop") {
       if (!id) {
         return { action: "suppress", reason: "missing_session", sourceEvent };

@@ -24,13 +24,30 @@ export interface NotifyOptions {
  * records every delivered attempt for restart-safe suppression.
  */
 export class MonitorNotifier {
+  private readonly pending = new Map<string, Promise<boolean>>();
   constructor(
     private readonly store: MonitorStore,
     private readonly provider: NotificationProvider,
     private readonly config: MonitorConfig,
   ) {}
 
-  async notify(
+  notify(
+    sessionKey: string | null,
+    notification: DecidedNotification,
+    nowMs: number,
+    options: NotifyOptions = {},
+  ): Promise<boolean> {
+    const key = fingerprintOf(sessionKey ?? "", notification.kind, notification.dedupKey ?? safeBody(notification.body, this.config.maxBodyChars));
+    if (options.force) return this.notifyOnce(sessionKey, notification, nowMs, options);
+    const existing = this.pending.get(key);
+    if (existing) return existing;
+    const sent = this.notifyOnce(sessionKey, notification, nowMs, options);
+    this.pending.set(key, sent);
+    void sent.finally(() => this.pending.delete(key)).catch(() => {});
+    return sent;
+  }
+
+  private async notifyOnce(
     sessionKey: string | null,
     notification: DecidedNotification,
     nowMs: number,
@@ -48,7 +65,7 @@ export class MonitorNotifier {
     const title = safeTitle(notification.title);
 
     if (sessionKey && !options.force) {
-      const fingerprint = fingerprintOf(sessionKey, notification.kind, body);
+      const fingerprint = fingerprintOf(sessionKey, notification.kind, notification.dedupKey ?? body);
       if (this.store.isDuplicateFingerprint(sessionKey, notification.kind, fingerprint)) {
         return false;
       }
@@ -84,7 +101,7 @@ export class MonitorNotifier {
         error: result.error,
       });
       if (result.ok && !options.force) {
-        const fingerprint = fingerprintOf(sessionKey, notification.kind, body);
+        const fingerprint = fingerprintOf(sessionKey, notification.kind, notification.dedupKey ?? body);
         this.store.rememberFingerprint(sessionKey, notification.kind, fingerprint, nowMs);
       }
     }

@@ -25,11 +25,14 @@ function rowToSession(row: Row | undefined): SessionRecord | undefined {
     lastActivityMs: Number(row.last_activity_ms),
     turnStartedMs: row.turn_started_ms == null ? null : Number(row.turn_started_ms),
     lastTurnMs: row.last_turn_ms == null ? null : Number(row.last_turn_ms),
+    lastTurnKey: (row.last_turn_key as string) ?? null,
     lastHeartbeatMs: row.last_heartbeat_ms == null ? null : Number(row.last_heartbeat_ms),
     lastStage: (row.last_stage as string) ?? null,
     lastMessage: (row.last_message as string) ?? null,
     waitingSinceMs: row.waiting_since_ms == null ? null : Number(row.waiting_since_ms),
     waitingOn: (row.waiting_on as string) ?? null,
+    waitingKind: (row.waiting_kind as SessionRecord["waitingKind"]) ?? null,
+    waitingToolId: (row.waiting_tool_id as string) ?? null,
     changedFiles: Number(row.changed_files),
     insertions: Number(row.insertions),
     deletions: Number(row.deletions),
@@ -115,11 +118,14 @@ export class MonitorStore {
       updatedAtMs: number | null;
       turnStartedMs: number | null;
       lastTurnMs: number | null;
+      lastTurnKey: string | null;
       lastHeartbeatMs: number | null;
       lastStage: string | null;
       lastMessage: string | null;
       waitingSinceMs: number | null;
       waitingOn: string | null;
+      waitingKind: SessionRecord["waitingKind"];
+      waitingToolId: string | null;
       changedFiles: number;
       insertions: number;
       deletions: number;
@@ -132,11 +138,14 @@ export class MonitorStore {
       updatedAtMs: "updated_at_ms",
       turnStartedMs: "turn_started_ms",
       lastTurnMs: "last_turn_ms",
+      lastTurnKey: "last_turn_key",
       lastHeartbeatMs: "last_heartbeat_ms",
       lastStage: "last_stage",
       lastMessage: "last_message",
       waitingSinceMs: "waiting_since_ms",
       waitingOn: "waiting_on",
+      waitingKind: "waiting_kind",
+      waitingToolId: "waiting_tool_id",
       changedFiles: "changed_files",
       insertions: "insertions",
       deletions: "deletions",

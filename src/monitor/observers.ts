@@ -298,7 +298,7 @@ export function classifyTranscriptTail(lines: string[]): TurnEvidence | null {
       // bookkeeping here and skipped like the Qoder equivalent.
       const kind = record.payload.type;
       if (kind === "task_started") return "in_flight";
-      if (kind === "task_complete") return "idle";
+      if (kind === "task_complete" || kind === "turn_aborted") return "idle";
       continue;
     }
     if (!isRecord(record.message)) continue;
@@ -330,24 +330,24 @@ function wasInterrupted(message: Record<string, unknown>): boolean {
 const INTERRUPTED_MARKER = /^\[Request interrupted by user/;
 
 /** Tail-only read: transcripts reach hundreds of MB and only their end matters. */
-export async function transcriptTurnEvidence(
+export async function readTranscriptTail(
   path: string,
   maxBytes = TAIL_READ_BYTES,
-): Promise<TurnEvidence | null> {
+): Promise<string[]> {
   let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
   try {
     handle = await fs.open(path, "r");
     const { size } = await handle.stat();
-    if (size === 0) return null;
+    if (size === 0) return [];
     const start = Math.max(0, size - maxBytes);
     const length = size - start;
     const buffer = Buffer.allocUnsafe(length);
     await handle.read(buffer, 0, length, start);
     const lines = buffer.toString("utf8").split("\n");
     if (start > 0) lines.shift(); // window began mid-line; that fragment is unreadable
-    return classifyTranscriptTail(lines);
+    return lines;
   } catch {
-    return null;
+    return [];
   } finally {
     try {
       await handle?.close();
@@ -355,4 +355,36 @@ export async function transcriptTurnEvidence(
       // already closed
     }
   }
+}
+
+
+export async function transcriptTurnEvidence(path: string, maxBytes = TAIL_READ_BYTES): Promise<TurnEvidence | null> {
+  return classifyTranscriptTail(await readTranscriptTail(path, maxBytes));
+}
+
+export interface PublicProgress {
+  message: string;
+  atMs: number;
+}
+
+/** Public assistant updates only. Never copy prompts, reasoning or tool output. */
+export function latestCodexProgress(lines: string[]): PublicProgress | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let record: unknown;
+    try { record = JSON.parse(lines[i]!); } catch { continue; }
+    if (!isRecord(record) || !isRecord(record.payload)) continue;
+    const p = record.payload;
+    if (record.type === "event_msg" && ["task_started", "task_complete", "turn_aborted"].includes(String(p.type))) return null;
+    let content: unknown;
+    if (record.type === "response_item" && p.type === "message" && p.role === "assistant" &&
+        (p.phase === "commentary" || p.channel === "commentary")) content = p.content;
+    if (record.type === "event_msg" && p.type === "item_completed" && isRecord(p.item) &&
+        p.item.type === "AgentMessage" && p.item.phase === "commentary") content = p.item.content;
+    if (!Array.isArray(content)) continue;
+    const text = content.filter((part) => isRecord(part) && ["output_text", "text"].includes(String(part.type)))
+      .map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "").join(" ").replace(/\s+/g, " ").trim();
+    const atMs = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
+    if (text && Number.isFinite(atMs)) return { message: text.slice(0, 200), atMs };
+  }
+  return null;
 }

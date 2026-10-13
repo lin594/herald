@@ -62,6 +62,8 @@ const STATE_LABELS: Record<string, readonly [string, string]> = {
   started: ["Started", "开始干活"],
   milestone: ["Milestone", "阶段进展"],
   waiting: ["Need Input", "等你输入"],
+  approval: ["Approval Pending", "等你批准"],
+  review: ["Ready to review", "待审阅"],
   blocked: ["Blocked", "被卡住"],
   failed: ["Failed", "出错了"],
   completed: ["Completed", "跑完了"],

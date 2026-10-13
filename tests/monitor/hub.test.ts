@@ -20,13 +20,14 @@ const config: MonitorConfig = {
   stallSeconds: 1500,
   heartbeatMaxPerHour: 3,
   waitingGraceSeconds: 60,
+  codexApprovalAlerts: true,
   hostHeartbeatTimeoutSeconds: 180,
   watchIntervalSeconds: 30,
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   minSeverity: "info",
-  severityMap: {},
+  severityMap: { milestone: "notice", resumed: "info" },
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],
@@ -120,7 +121,7 @@ describe("MonitorHub cooperative emit", () => {
 });
 
 describe("MonitorHub hook state ingestion", () => {
-  it("tracks UserPromptSubmit -> Stop lifecycle without early-returning", async () => {
+  it("tracks turns and sends long completion through monitor policy", async () => {
     const { store, hub, sent } = fixture();
     const prompt = {
       agent: "codex",
@@ -131,7 +132,7 @@ describe("MonitorHub hook state ingestion", () => {
         prompt: "do the thing",
       },
     } as unknown as IncomingAgentEvent;
-    expect(await hub.handleIncoming(prompt, "macbook", T0)).toBeNull();
+    expect((await hub.handleIncoming(prompt, "macbook", T0))?.status).toBe(200);
     let session = store.getSession("macbook:sess-1");
     expect(session?.status).toBe("ACTIVE");
     expect(session?.project).toBe("Repo A");
@@ -157,8 +158,9 @@ describe("MonitorHub hook state ingestion", () => {
     session = store.getSession("macbook:sess-1");
     expect(session?.status).toBe("WAITING_USER");
 
-    // Hub never sends notifications for hook events.
-    expect(sent).toHaveLength(0);
+    // Short turns are quiet; one long turn produces an ordinary review alert.
+    expect(sent).toHaveLength(1);
+    expect(sent[0].level).toBe("active");
   });
 
   it("PermissionRequest moves the session to WAITING_USER", async () => {
@@ -210,9 +212,9 @@ describe("MonitorHub waiting grace", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("leaves the request to the upstream pipeline when the grace is off", async () => {
+  it("keeps zero-grace approval on the monitor path", async () => {
     const { store, hub } = fixture("en", { waitingGraceSeconds: 0 });
-    expect(await hub.handleIncoming(permission(), "macbook", T0)).toBeNull();
+    expect((await hub.handleIncoming(permission(), "macbook", T0))?.status).toBe(200);
     const session = store.getSession("macbook:sess-g")!;
     expect(session.status).toBe("WAITING_USER");
     expect(session.waitingSinceMs).toBe(T0);
@@ -241,7 +243,7 @@ describe("MonitorHub waiting grace", () => {
       "macbook",
       T0 + 20_000,
     );
-    expect(stop).toBeNull();
+    expect(stop?.status).toBe(200);
     const session = store.getSession("macbook:sess-g")!;
     expect(session.waitingSinceMs).toBeNull();
     expect(session.waitingOn).toBeNull();

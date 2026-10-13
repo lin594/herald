@@ -15,9 +15,9 @@ the kind — decides how hard it lands on the phone (`src/monitor/severity.ts`):
 | Tier | Bark level | On the phone | Reserved for |
 |---|---|---|---|
 | `critical` | `timeSensitive` | breaks through Focus, sounds | the agent **stopped and needs a human**: `waiting`, `blocked`, `failed` |
-| `notice` | `active` | ordinary alert | worth a look: an evidence-backed `possible_stall`, `milestone`, `completed`, `host_lost` |
-| `info` | `passive` | collected in the notification centre, no sound | summaries and weak inferences: `heartbeat`, `resumed`, a stall nothing can back up |
-| `debug` | — | never sent | `started`, and anything you demote |
+| `notice` | `active` | ordinary alert | worth a look: an evidence-backed `possible_stall`, `completed`, `host_lost` |
+| `info` | `passive` | collected in the notification centre, no sound | summaries and weak inferences: `heartbeat`, a stall nothing can back up |
+| `debug` | — | never sent | `started`, `milestone`, `resumed`, and anything you demote |
 
 Two knobs, no code change:
 
@@ -42,41 +42,33 @@ interruption level. Only the first is worth breaking a Focus for.
 | Any observed activity | → ACTIVE | none | — | — |
 | `emit started/milestone/completed/waiting/blocked/failed` | records message, may move state | `started` · `milestone` · `completed` … | per the severity table (`started` is debug, so no "it began" ping) | fingerprint (kind+body); identical repeat suppressed; `./herald test`/force bypasses |
 | `emit waiting` / `emit blocked` | → WAITING_USER / BLOCKED | "Need Input" / "Blocked" | **critical** | fingerprint; cleared when activity resumes |
-| PermissionRequest / Notification hook | → WAITING_USER | nothing on arrival; **"等你批准: Bash" once the wait outlives `HERALD_WAITING_GRACE_SECONDS`** (see "A pending question is not yet an ask") | **critical** when it lands | one clock-free push per wait episode; re-armed by the next request |
+| Opted-in manual Codex approval / other agents’ Notification hook | → WAITING_USER | nothing on arrival; **"等你批准: Bash" once the wait outlives `HERALD_WAITING_GRACE_SECONDS`** (see "Requests versus real waits") | **critical** when it lands | one clock-free push per wait episode; re-armed by a new wait episode |
 | Idle ≥ `HERALD_QUIET_SECONDS` (10 min) | ACTIVE → QUIET | none | — | — |
 | QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode, and only while a turn is unaccounted for: a transcript whose last turn closed (`end_turn`, `task_complete`, a user interrupt) or a hook that already reported the `Stop` retires the session **silently** | **notice** with evidence behind it, **info** (and clock-only wording) with none | fingerprint; cleared on resume/re-baseline |
-| Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **info** (silent delivery) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
-| Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | upstream "turn finished" wording — **a turn, not the task** | per upstream | upstream cooldown policy |
-| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (15 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary, opening with `最新结论 / Last said:` — the agent's **own** words from its last `Stop` or emit — then the turn clock while a turn is in flight, task clock, idle gap, files, ±lines, stage, artifacts | **info** | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
+| Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **debug** (no push by default) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
+| Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | Codex: concise "Ready to review" — **a turn, not the task** | **notice** | durable per-turn fingerprint, including concurrent/retried Stops |
+| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (30 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary, opening with `最新进展 / Latest progress:` — the agent's **own** words from the current turn's public commentary or cooperative emit — then the turn clock while a turn is in flight, task clock, idle gap, files, ±lines, stage, artifacts | **info** | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
 | `FAILED` event × N identical | stays FAILED | once | **critical** | fingerprint; a resume/activity edge between failures clears it → a genuine second failure notifies again |
 
-## A pending question is not yet an ask
+## Requests versus real waits
 
-Under auto-approval most permission requests answer themselves within seconds.
-A phone that rings for those teaches you to ignore the phone, so a request is
-recorded as a fact first and only becomes a push if the agent is *still* stuck
-when the grace runs out (`HERALD_WAITING_GRACE_SECONDS`, default 60):
+With Herald enabled, `HERALD_CODEX_APPROVAL_ALERTS=false` is the default. Codex
+`PermissionRequest` reports intent to ask, not whether approve-for-me has finished
+or whether a human is required. Record the event silently; do not infer a human
+wait from that hook or a timer. Manual-approval users can opt in; duplicate
+request hooks keep the original grace and fingerprint.
 
-- The hub answers the adapter `{ notified: false, reason: "waiting_grace" }`
-  instead of forwarding the upstream push, and stores `waiting_since_ms` plus
-  `waiting_on` (the tool name, or the notification's own text).
-- The state machine pushes once the wait outlives the grace and the host is
-  available: `等你批准: Bash` / `Needs your approval: Bash` at **critical**, which
-  is the only tier allowed to break a Focus. Nothing while the agent may still
-  answer itself; nothing about a wait the host cannot confirm.
-- The body carries no clock, so ten ticks of the same wait are one push. The
-  next request is a new episode: it gets its own grace and its own push.
-- Any activity, and any turn boundary (`Stop`, `StopFailure`, `SessionEnd`,
-  a new prompt), clears the wait facts — an answered question must not re-push.
+A blocking `request_user_input` enters `WAITING_USER` with kind `input` and its
+tool-call id. It alerts once after the 60-second grace with the question itself.
+A matching `PostToolUse`, a new user turn, Stop or Interrupt clears the wait.
+An unrelated tool finishing, generic process activity or transcript bookkeeping
+cannot answer the question. Nonblocking `request_user_input_async` stays quiet.
 
-Two things are deliberately *not* held: a cooperative `emit waiting/blocked`,
-because an agent that calls the API to ask means it; and the `Stop` that closes
-a long turn, because that "wait" is a review and the completion push is exactly
-what it is for. `HERALD_WAITING_GRACE_SECONDS=0` restores notify-on-arrival.
+Routine `milestone` and `resumed` events are `debug`. Half-hour heartbeats are
+`info` / Bark `passive`: latest public progress plus concise timing/context, only
+when the session has observable activity. Interrupted/finished/waiting sessions
+send no running heartbeat; a truly silent in-flight turn uses the stall policy.
 
-The prompt is never stored anywhere a push can read it. `waiting_on` and
-`last_message` hold the tool name and the agent's own words, which is what makes
-quoting them in a heartbeat safe.
 
 ## Silence is not evidence
 

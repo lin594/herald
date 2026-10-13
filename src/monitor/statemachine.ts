@@ -30,6 +30,8 @@ export interface TickResult {
     lastHeartbeatMs: number;
     waitingSinceMs: number | null;
     waitingOn: string | null;
+    waitingKind: SessionRecord["waitingKind"];
+    waitingToolId: string | null;
   }>;
   notifications: DecidedNotification[];
   clearedDedupKinds: string[];
@@ -106,7 +108,7 @@ function heartbeatBody(
   // clock is still running — so its own last words lead, when it has said any.
   const conclusion = session.lastMessage
     ? [
-        `${language === "zh" ? "最新结论" : "Last said"}: ${session.lastMessage}`,
+        `${language === "zh" ? "最新进展" : "Latest progress"}: ${session.lastMessage}`,
       ]
     : [];
   return [...conclusion, ...(head ? [head] : []), ...details].join("\n");
@@ -164,11 +166,13 @@ export function evaluateSessionTick(
     // Waiting/blocked/failed/completed: user-facing state already announced;
     // activity while waiting means the user answered, so return to ACTIVE.
     // FAILED/COMPLETED are only re-opened through event ingestion.
-    if (needsUser && anyActivity) {
+    if (needsUser && anyActivity && session.agentType !== "codex") {
       result.updates.status = "ACTIVE";
       result.updates.lastActivityMs = nowMs;
       result.updates.waitingSinceMs = null;
       result.updates.waitingOn = null;
+      result.updates.waitingKind = null;
+      result.updates.waitingToolId = null;
       result.clearedDedupKinds.push("waiting", "blocked", "possible_stall", "failed");
       return result;
     }
@@ -187,11 +191,13 @@ export function evaluateSessionTick(
       // real wait into a stream of reminders.
       result.notifications.push({
         kind: "waiting",
-        title: titleFor(session, "waiting", config.language),
+        title: titleFor(session, session.waitingKind === "approval" ? "approval" : "waiting", config.language),
         body: [
-          config.language === "zh"
-            ? `等你批准${session.waitingOn ? `：${session.waitingOn}` : ""}`
-            : `Needs your approval${session.waitingOn ? `: ${session.waitingOn}` : ""}`,
+          session.waitingKind === "input"
+            ? session.waitingOn ?? (config.language === "zh" ? "请回到 Codex 回答问题" : "Answer the question in Codex")
+            : config.language === "zh"
+              ? `等你批准${session.waitingOn ? `：${session.waitingOn}` : ""}`
+              : `Needs your approval${session.waitingOn ? `: ${session.waitingOn}` : ""}`,
           ...contextLines(session, config.language),
         ].join("\n"),
       });
@@ -231,7 +237,7 @@ export function evaluateSessionTick(
       result.clearedDedupKinds.push("possible_stall", "resumed");
     } else {
       result.updates.lastActivityMs = nowMs;
-      if (session.status === "STARTED") result.updates.status = "ACTIVE";
+      if (session.status === "STARTED" || session.status === "UNKNOWN") result.updates.status = "ACTIVE";
     }
     result.clearedDedupKinds.push("possible_stall", "resumed");
   } else if (session.status === "ACTIVE" && idleMs / 1000 >= config.quietSeconds) {
@@ -297,14 +303,11 @@ export function evaluateSessionTick(
     const due = firstDue
       ? sinceStart >= interval
       : sinceBeat >= interval;
-    // Only notify when something changed since the last heartbeat. `>=`
-    // because activity on this very tick sets lastActivityMs = nowMs: a
-    // session with a running process always has fresh content to report,
-    // while a frozen clock (QUIET, no activity) stays exactly equal and is
-    // skipped.
+    // Fresh activity on this tick or activity after the last delivered beat
+    // permits a digest. An unchanged timestamp equal to the beat is quiet.
     const changedSinceBeat =
-      firstDue ||
-      session.lastActivityMs >= (session.lastHeartbeatMs ?? 0);
+      firstDue || anyActivity ||
+      session.lastActivityMs > (session.lastHeartbeatMs ?? 0);
     if (due && changedSinceBeat) {
       result.notifications.push({
         kind: "heartbeat",

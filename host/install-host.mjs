@@ -144,11 +144,28 @@ function writeHooksDoc(path, hooksDoc, events, command) {
   console.log(`updated ${path}\n  ${events.join("/")} -> ${command}`);
 }
 
-const codexEvents = ["UserPromptSubmit", "PermissionRequest", "Stop"];
-const codexCommand = `node ${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}`;
+const codexEvents = ["UserPromptSubmit", "PermissionRequest", "PreToolUse", "PostToolUse", "Stop", "Interrupt", "SessionEnd"];
+const codexCommand = `"${process.execPath}" "${join(REPO, "examples", "codex", "codex-agent-notify.mjs")}"`;
 const codexPath = join(homedir(), ".codex", "hooks.json");
 const codexHooks = readHooksDoc(codexPath);
-if (ensureHooks(codexHooks, codexEvents, codexCommand)) {
+const codexHooksChanged = ensureHooks(codexHooks, codexEvents.filter((event) => event !== "PreToolUse"), codexCommand, { timeout: 3 });
+let codexQuestionHookChanged = ensureHooks(codexHooks, ["PreToolUse"], codexCommand, { timeout: 3 });
+for (const entry of [...codexHooks.hooks.PreToolUse]) {
+  const owned = (entry.hooks ?? []).filter((hook) => hook.command === codexCommand);
+  if (owned.length === 0) continue;
+  const matcher = "^(functions\\.)?request_user_input$";
+  if (entry.matcher === matcher) continue;
+  const foreign = (entry.hooks ?? []).filter((hook) => hook.command !== codexCommand);
+  if (foreign.length > 0) {
+    // Shared entries keep their original matcher for the user's other hooks.
+    entry.hooks = foreign;
+    codexHooks.hooks.PreToolUse.push({ matcher, hooks: owned });
+  } else {
+    entry.matcher = matcher;
+  }
+  codexQuestionHookChanged = true;
+}
+if (codexHooksChanged || codexQuestionHookChanged) {
   writeHooksDoc(codexPath, codexHooks, codexEvents, codexCommand);
 } else {
   console.log(`SKIP hooks: already up to date in ${codexPath}`);

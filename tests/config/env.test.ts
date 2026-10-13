@@ -372,3 +372,10 @@ describe("config parsing", () => {
     expect(config.cooldownSeconds).toBe(0);
   });
 });
+
+
+it("passes the Codex approval opt-in and half-hour digest default into Docker", () => {
+  const compose = readFileSync(new URL("../../deploy/docker/docker-compose.yml", import.meta.url), "utf8");
+  expect(compose).toContain('HERALD_CODEX_APPROVAL_ALERTS: "${HERALD_CODEX_APPROVAL_ALERTS:-false}"');
+  expect(compose).toContain('HERALD_HEARTBEAT_FIRST_SECONDS: "${HERALD_HEARTBEAT_FIRST_SECONDS:-1800}"');
+});

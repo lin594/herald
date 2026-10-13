@@ -31,7 +31,7 @@ Claude Code supports these hooks:
 Codex supports these hooks:
 
 - `UserPromptSubmit`: only records this turn's start time server-side; no phone notification.
-- `PermissionRequest`: forwarded only when `notifyPermissionRequests` is `true` in the adapter config (default `false`). That flag decides whether the monitor **sees** the request, not whether your phone rings: a request the monitor sees is recorded as a wait and pushed only if it is still pending after `HERALD_WAITING_GRACE_SECONDS` (60 s). Keep it `true` if you want "needs your approval" pushes at all; keep it `false` for total silence on permissions.
+- `PermissionRequest`: forwarded only with `notifyPermissionRequests: true`. With Herald enabled, requests are recorded silently by default. Set `HERALD_CODEX_APPROVAL_ALERTS=true` only for manual approvals; a request hook alone cannot establish that approve-for-me needs a human.
 - `Stop`: pushes a completion notification after the task exceeds the server completion threshold (default `120` seconds).
 
 ## Manual notification switch
@@ -537,7 +537,7 @@ AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS=120
 
 Long-task completion notifications are on by default, threshold `120` seconds: only after a task runs longer than 120 seconds is a completion notification pushed when it ends.
 
-To turn completion notifications off, set the threshold to `0`. Completion notifications and Codex permission notifications are independent; whether a permission request is even visible to the monitor is controlled by `notifyPermissionRequests` in the adapter config (off by default), and how long it must stay unanswered before it reaches your phone is `HERALD_WAITING_GRACE_SECONDS` on the server.
+To disable completion notifications, set the threshold to `0`. Codex approval alerts are separately opt-in with `HERALD_CODEX_APPROVAL_ALERTS=true`; `notifyPermissionRequests` controls whether requests reach the server.
 
 Start the service:
 
@@ -568,7 +568,7 @@ Configurable fields:
 
 - `serverUrl`: required. The AgentNotify server URL.
 - `token`: required. Only the part after the colon in `AGENT_NOTIFY_TOKENS`.
-- `notifyPermissionRequests`: optional, default `false`. Whether the adapter forwards Codex `PermissionRequest` at all — `./herald install-host` sets it to `true`. It is not the phone-volume knob: a forwarded request becomes a push only if it is still unanswered after `HERALD_WAITING_GRACE_SECONDS` (60 s) on the server, which is what keeps auto-approved requests silent.
+- `notifyPermissionRequests`: optional, default `false`; `./herald install-host` sets it to `true` to record requests. Push delivery is separately controlled by `HERALD_CODEX_APPROVAL_ALERTS` (default `false`).
 - `timeoutMs`: optional. Adapter request timeout in milliseconds, default `2000`.
 - `debugLogPath`: optional. When set, the adapter writes every event it sees to this JSONL file, to help confirm whether events reach the adapter. Off by default.
 
@@ -602,7 +602,7 @@ The hook recognizes `/agent-notify` commands and writes the state file. The skil
 
 ### 5. Configure Codex hooks
 
-Merge the following into the user-level `~/.codex/hooks.json`. If you already have hooks configured, just merge these three events in.
+Merge the following into the user-level `~/.codex/hooks.json`. If you already have hooks configured, just merge these seven events in.
 
 ```json
 {
@@ -613,7 +613,7 @@ Merge the following into the user-level `~/.codex/hooks.json`. If you already ha
           {
             "type": "command",
             "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
-            "timeout": 5
+            "timeout": 3
           }
         ]
       }
@@ -624,7 +624,30 @@ Merge the following into the user-level `~/.codex/hooks.json`. If you already ha
           {
             "type": "command",
             "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
-            "timeout": 5
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(functions\\.)?request_user_input$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
           }
         ]
       }
@@ -635,7 +658,29 @@ Merge the following into the user-level `~/.codex/hooks.json`. If you already ha
           {
             "type": "command",
             "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
-            "timeout": 5
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
           }
         ]
       }
@@ -656,7 +701,31 @@ pnpm dev
 
 Run a task longer than `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`. A completion notification fires when the task ends. Short tasks do not trigger completion notifications.
 
-If `notifyPermissionRequests` is `true`, lower Codex's permissions and trigger an action that needs approval, e.g. have it run a shell command that needs approval, and leave it unanswered. Nothing fires when the request arrives; about `HERALD_WAITING_GRACE_SECONDS` later (60 s by default) you get one notification titled `Codex · <project> · Need Input` / `等你输入` reading `Needs your approval: Bash`. Approve it inside the grace window and the phone stays silent — that is the point.
+With the default approve-for-me profile, an approval request must not produce a push, even after the grace period. To test manual approval alerts, set `HERALD_CODEX_APPROVAL_ALERTS=true`, restart the server, leave a request pending past `HERALD_WAITING_GRACE_SECONDS`, and expect one `Approval Pending` push. Completing the matching tool clears the wait. A blocking `request_user_input` question produces `Need Input`, independently of the approval opt-in.
+
+## Herald: quiet Codex monitoring
+
+These defaults apply with `HERALD_ENABLED=true` (the default). Disabling Herald restores the upstream hook pipeline, including immediate approval alerts.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `HERALD_CODEX_APPROVAL_ALERTS` | `false` | Record approval requests silently for approve-for-me. Enable for manual approvals only. An approval-request hook is not a confirmed human wait. |
+| `HERALD_WAITING_GRACE_SECONDS` | `60` | Delay blocking questions and opted-in approvals; `0` delivers at the next evaluation tick. Matching `PostToolUse` ends the wait. |
+| `HERALD_HEARTBEAT_FIRST_SECONDS` | `1800` | First quiet progress digest after 30 minutes of work. |
+| `HERALD_HEARTBEAT_NORMAL_SECONDS` | `1800` | Further digests every 30 minutes when there has been observable activity. |
+| `HERALD_MIN_SEVERITY` | `info` | Heartbeats use Bark `passive`; completion/stall use `active`; explicit waiting/failure use `timeSensitive`. |
+| `HERALD_SEVERITY_MAP` | empty | Routine `milestone` and `resumed` are `debug` and do not push by default. Set `heartbeat=debug` to mute digests. |
+
+Digests quote the latest public assistant progress update for the current turn, followed by brief timing/context. They do not read internal reasoning, prompts or tool output. For Codex desktop's `phase: commentary` and CLI's `channel: commentary`, mount the transcript directory read-only:
+
+```bash
+HERALD_HOST_CODEX_SESSIONS_DIR=/absolute/path/to/.codex/sessions
+HERALD_TRANSCRIPT_DIR=/host/.codex/sessions
+```
+
+Without a readable transcript, the digest reports observed timing/context without inventing a progress summary. Finished, interrupted and waiting sessions do not send running digests. A silent in-flight turn produces one possible-stall alert at 25 minutes (`HERALD_STALL_SECONDS=1500`), rather than claiming it is progressing. The transcript format is best-effort, not a stable Codex API; hooks remain the main state source. Remote sessions need Herald and hooks on their execution host.
+
+When upgrading, rerun `./herald install-host`, review/trust the changed hooks in Codex, and run `./herald up` to rebuild. Existing explicit heartbeat values in `.env` remain effective; set both heartbeat intervals to `1800` for the half-hour cadence. Existing SQLite volumes migrate in place and preserve delivery dedup.
 
 ## Common commands
 
@@ -854,7 +923,7 @@ Completion notifications are on by default, threshold 120 seconds. When missing,
 
 - **OpenCode**: the threshold is the server `AGENT_NOTIFY_OPENCODE_COMPLETION_MIN_SECONDS` (default `120`). The time from session `busy` to `idle` must reach the threshold to push. Short tasks not pushing is expected. To verify, temporarily set `AGENT_NOTIFY_OPENCODE_COMPLETION_MIN_SECONDS` to `5` in the server `.env` and run a task longer than 5 seconds. If a turn already errored (`session.error`), a later `idle` won't push a completion notification.
 - **Claude Code**: the threshold is the server `AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS` (default `120`). `UserPromptSubmit` must record the start time first for `Stop` to judge; if the `UserPromptSubmit` hook isn't configured or didn't fire, `Stop` has no start time and won't push a completion notification. Confirm all four hooks are configured. `StopFailure` clears the turn's state and sends a failure notification instead of a completion notification.
-- **Codex**: the threshold is the server `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` (default `120`). It also relies on `UserPromptSubmit` recording the start time; confirm all three hooks are configured and Codex `/hooks` is trusted.
+- **Codex**: the threshold is the server `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` (default `120`). It also relies on `UserPromptSubmit` recording the start time; confirm all seven hooks are configured and Codex `/hooks` is trusted.
 
 Tip: temporarily set the threshold to `5` and run a task clearly longer than 5 seconds — much faster than waiting 120. Change it back to `120` afterwards.
 
@@ -915,7 +984,7 @@ Check in order:
 3. Whether all three events (`UserPromptSubmit`, `PermissionRequest`, `Stop`) are configured in `~/.codex/hooks.json`, and the command points to `node /absolute/path/.config/agent-notify/codex-agent-notify.mjs`.
 4. Whether the command path actually exists: `ls /absolute/path/.config/agent-notify/codex-agent-notify.mjs`.
 5. **Whether Codex `/hooks` has trusted this hook.** Until trusted, Codex skips non-managed hooks — this is the most common "configured but not working" cause with Codex. After the command path changes you must re-trust it too.
-6. If only Codex permission notifications are missing, check whether `notifyPermissionRequests` is `true` in `~/.config/agent-notify/codex.json`. The default is `false`, which hides the request from the monitor entirely. Then allow for the grace: a request pushes only while it is still unanswered `HERALD_WAITING_GRACE_SECONDS` (60 s) later, so anything auto-approved within that window is correctly silent.
+6. Codex approval requests are intentionally quiet with `HERALD_CODEX_APPROVAL_ALERTS=false`. For manual approvals, enable that server flag and `notifyPermissionRequests` in the adapter; confirm the grace interval and new `PostToolUse` registration.
 
 If you are debugging Codex permission notifications, first confirm `notifyPermissionRequests` is `true`, then test the adapter with a manual payload:
 
@@ -929,7 +998,7 @@ Then check the adapter debug log (requires `debugLogPath` set in `codex.json`):
 tail -f ~/.config/agent-notify/codex-debug.jsonl
 ```
 
-Common cases are the same as Claude Code: no new logs means the hook didn't execute or the config can't be read; `forwarded:false` means it's not a supported event; `forwarded:true` but `sent:false` means it didn't reach the server; `sent:true` with no push means either the permission grace (the request is only announced if it stays pending, and `POST /events` answers `{"reason":"waiting_grace"}` when it is being held) or the provider.
+Codex debug logs contain event, session and tool identifiers rather than full inputs/outputs. `forwarded:false` means unsupported or disabled forwarding; `sent:true` means accepted by the server. `auto_approval_silent` is the default approval policy and `waiting_grace` means the grace is pending; neither is a provider failure.
 
 ### Configured the token but still 401
 

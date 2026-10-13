@@ -21,7 +21,7 @@ describe("Codex adapter example", () => {
       hookEventName: "PermissionRequest",
       sessionId: "session_debug_1",
       toolName: "Bash",
-      raw,
+      toolUseId: undefined,
     });
   });
 
@@ -62,7 +62,7 @@ describe("Codex adapter example", () => {
       adapter.shouldForwardCodexEvent({
         hook_event_name: "PostToolUse",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(adapter.shouldForwardCodexEvent({})).toBe(false);
   });
 
@@ -518,4 +518,17 @@ describe("Codex adapter example", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+});
+
+
+it("forwards blocking questions only and sends progress without private output", async () => {
+  expect(adapter.shouldForwardCodexEvent({ hook_event_name: "PreToolUse", tool_name: "functions.request_user_input" })).toBe(true);
+  expect(adapter.shouldForwardCodexEvent({ hook_event_name: "PreToolUse", tool_name: "request_user_input_async" })).toBe(false);
+  const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
+  await adapter.handleCodexEvent(adapter.parseCodexConfig({ serverUrl: "http://server", token: "token" }), {
+    hook_event_name: "PostToolUse", session_id: "s", tool_name: "Bash", tool_use_id: "call",
+    tool_input: { command: "secret command" }, tool_response: "secret output",
+  }, { readState: () => ({ persistentDisabled: false, disabledSessions: {} }), fetchImpl });
+  const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+  expect(body.raw).toEqual({ hook_event_name: "PostToolUse", session_id: "s", tool_name: "Bash", tool_use_id: "call" });
 });

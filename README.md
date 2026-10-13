@@ -49,12 +49,7 @@ renders the same pushes in Chinese; an unnamed workspace is shown as
   < `notice` < `critical`), and only a state where the agent has stopped and
   needs a human is allowed to interrupt. `HERALD_MIN_SEVERITY` drops everything
   below a floor; `HERALD_SEVERITY_MAP` retunes one kind without a code change.
-- **An ask is not a question you owe.** Under auto-approval most permission
-  requests answer themselves in seconds, so a request is recorded and only a
-  wait that outlives `HERALD_WAITING_GRACE_SECONDS` (60 s) becomes one push —
-  `等你批准: Bash`. The heartbeat quotes the agent's own last words instead of a
-  monitor-written summary, so the periodic "still running" ping tells you what
-  the run actually concluded.
+- **Quiet Codex approvals, half-hour progress digests.** Automatic approval requests stay silent; real blocking questions alert once, and quiet digests quote the latest public progress update.
 - **Four evidence channels.** Hook events (cooperative), session transcript
   growth, host process facts, and read-only workspace/git observation. No
   single channel is trusted to say "working".
@@ -64,7 +59,7 @@ renders the same pushes in Chinese; an unnamed workspace is shown as
   read-only mounts (never `~` wholesale), secrets redacted before they reach
   the push provider, no account and no telemetry.
 
-Underneath it is the upstream pipeline, unmodified in behaviour: hook events in,
+Codex monitor notifications share the durable severity and dedup policy. The base pipeline remains available with Herald disabled: hook events in,
 short action-focused notifications out, delivered by Bark (iPhone / Apple Watch)
 or ntfy (everything else).
 
@@ -85,7 +80,7 @@ or ntfy (everything else).
 | --- | --- | --- |
 | OpenCode | plugin example | permission / question / session-error / idle-completion events |
 | Claude Code | command hook + adapter | `UserPromptSubmit`, selected `Notification`, `Stop`, `StopFailure` |
-| Codex | command hook + adapter | `UserPromptSubmit`, `Stop`, `PermissionRequest` |
+| Codex | command hook + adapter | turn lifecycle, approval requests, blocking questions, tool completion and interruption |
 | Qoder (IDE + CLI) | command hook + adapter | `UserPromptSubmit`, `Notification`, `Stop`, `StopFailure`, `PermissionRequest` |
 
 The adapter is fail-safe: server errors never block the agent. Long-task completion is tracked in the server, so adapters stay stateless.
@@ -155,7 +150,7 @@ agent-notify CLI, and read docs/agent-integration.md for the monitor-specific pa
 Herald is a fork of **[LetTTGACO/agent-notify](https://github.com/LetTTGACO/agent-notify)**
 by [LetTTGACO](https://github.com/LetTTGACO), MIT-licensed. Everything in
 `src/server`, `src/core`, `src/formatters`, `src/providers` and `examples` is
-upstream code, kept behaviour-compatible on purpose; the monitor lives in
+based on upstream code; the Codex monitor path adds quiet approval and progress handling, while the monitor lives in
 `src/monitor` and `host/` and hooks in at three points only
 ([why, and what was evaluated](docs/upstream-gap-analysis.md)).
 

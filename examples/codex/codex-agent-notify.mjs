@@ -17,6 +17,9 @@ const NOTIFY_EVENT_NAMES = new Set([
   "UserPromptSubmit",
   "PermissionRequest",
   "Stop",
+  "PostToolUse",
+  "Interrupt",
+  "SessionEnd",
 ]);
 
 function isRecord(value) {
@@ -46,6 +49,9 @@ function getToolName(raw) {
 
 export function shouldForwardCodexEvent(raw, config = {}) {
   const hookEventName = getHookEventName(raw);
+  if (hookEventName === "PreToolUse") {
+    return getToolName(raw)?.split(".").pop() === "request_user_input";
+  }
   if (hookEventName === "PermissionRequest") {
     return config.notifyPermissionRequests === true;
   }
@@ -57,7 +63,7 @@ export function summarizeCodexEventForDebug(raw) {
     hookEventName: getHookEventName(raw) ?? "unknown",
     sessionId: getSessionId(raw),
     toolName: getToolName(raw),
-    raw,
+    toolUseId: raw?.tool_use_id,
   };
 }
 
@@ -474,11 +480,15 @@ export async function handleCodexEvent(config, raw, deps = {}) {
     return { forwarded: true, sent: false, muted, ...(debug ? { debug } : {}) };
   }
 
+  // Progress is a fact: do not ship command output, patches, or MCP results.
+  const forwardedRaw = getHookEventName(raw) === "PostToolUse"
+    ? Object.fromEntries(["hook_event_name", "session_id", "turn_id", "cwd", "transcript_path", "tool_name", "tool_use_id"].filter((key) => raw[key] !== undefined).map((key) => [key, raw[key]]))
+    : raw;
   const sent = await sendCodexEvent(
     config.serverUrl,
     config.token,
     config.timeoutMs,
-    raw,
+    forwardedRaw,
     fetchImpl,
   );
   return { forwarded: true, sent, ...(debug ? { debug } : {}) };

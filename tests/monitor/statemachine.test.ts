@@ -20,13 +20,14 @@ const config: MonitorConfig = {
   stallSeconds: 1500,
   heartbeatMaxPerHour: 3,
   waitingGraceSeconds: 60,
+  codexApprovalAlerts: true,
   hostHeartbeatTimeoutSeconds: 180,
   watchIntervalSeconds: 30,
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   minSeverity: "info",
-  severityMap: {},
+  severityMap: { milestone: "notice", resumed: "info" },
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],
@@ -49,11 +50,14 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
     lastActivityMs: T0,
     turnStartedMs: null,
     lastTurnMs: null,
+    lastTurnKey: null,
     lastHeartbeatMs: null,
     lastStage: null,
     lastMessage: null,
     waitingSinceMs: null,
     waitingOn: null,
+    waitingKind: null,
+    waitingToolId: null,
     changedFiles: 0,
     insertions: 0,
     deletions: 0,
@@ -265,7 +269,7 @@ describe("evaluateSessionTick", () => {
 
   it("activity while WAITING_USER returns to ACTIVE and clears waiting dedup", () => {
     const result = evaluateSessionTick(
-      { session: session({ status: "WAITING_USER" }), hostAvailable: true, processActive: true, transcriptActive: false },
+      { session: session({ status: "WAITING_USER", agentType: "qoder" }), hostAvailable: true, processActive: true, transcriptActive: false },
       config,
       T0 + 60_000,
     );
@@ -310,7 +314,7 @@ describe("evaluateSessionTick", () => {
       {
         session: session({ lastHeartbeatMs: lastBeat, lastActivityMs: T0 - 2000_000 }),
         ...quiet,
-        processActive: true,
+        processActive: false,
       },
       config,
       T0,
@@ -469,7 +473,7 @@ describe("waiting grace", () => {
 
   it("clears the wait facts on activity so the next question gets its own grace", () => {
     const result = evaluateSessionTick(
-      { session: waiting(), hostAvailable: true, processActive: true, transcriptActive: false },
+      { session: { ...waiting(), agentType: "qoder" }, hostAvailable: true, processActive: true, transcriptActive: false },
       config,
       T0 + 61_000,
     );
@@ -513,7 +517,7 @@ describe("heartbeat conclusion", () => {
       config,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(beat?.body.split("\n")[0]).toBe("Last said: migrations applied, 44 files touched");
+    expect(beat?.body.split("\n")[0]).toBe("Latest progress: migrations applied, 44 files touched");
   });
 
   it("says the same in Chinese", () => {
@@ -525,6 +529,6 @@ describe("heartbeat conclusion", () => {
       zh,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(beat?.body.split("\n")[0]).toBe("最新结论: 迁移已应用");
+    expect(beat?.body.split("\n")[0]).toBe("最新进展: 迁移已应用");
   });
 });

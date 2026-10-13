@@ -55,9 +55,15 @@ export function ensureHooks(doc, events, command, entryExtra = {}, marker = HOOK
       changed = true;
     }
     for (const hook of ours) {
-      if (hook.command === command) continue;
-      hook.command = command;
-      changed = true;
+      if (hook.command !== command) {
+        hook.command = command;
+        changed = true;
+      }
+      for (const [key, value] of Object.entries(entryExtra)) {
+        if (hook[key] === value) continue;
+        hook[key] = value;
+        changed = true;
+      }
     }
     doc.hooks[event] = list;
   }

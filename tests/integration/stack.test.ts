@@ -13,6 +13,10 @@ import type { NotificationPayload, NotificationResult } from "../../src/provider
 
 const config: MonitorConfig = parseMonitorConfig({
   HERALD_DB_PATH: ":memory:",
+  HERALD_CODEX_APPROVAL_ALERTS: "true",
+  HERALD_HEARTBEAT_FIRST_SECONDS: "900",
+  HERALD_MIN_SEVERITY: "info",
+  HERALD_SEVERITY_MAP: "milestone=notice,resumed=info",
   HERALD_PROJECT_MAP: "/work/repo-a=Repo A",
 });
 
@@ -201,7 +205,7 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
     });
     await h.scheduler.run(Date.now() + 61_000);
     await h.scheduler.run(Date.now() + 62_000);
-    const waits = h.sent.filter((p) => (p as { title?: string }).title?.includes("Need Input"));
+    const waits = h.sent.filter((p) => (p as { title?: string }).title?.includes("Approval Pending"));
     expect(waits).toHaveLength(1);
     expect(waits[0].body).toContain("Needs your approval: Bash");
     expect(waits[0].urgency).toBe("time_sensitive");

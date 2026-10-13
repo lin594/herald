@@ -73,7 +73,7 @@ describe("hooks-merge", () => {
     expect(ensureHooks(doc, ["Stop", "UserPromptSubmit"], QODER_CMD, { timeout: 5 })).toBe(true);
     expect(entries(doc, "Stop")).toEqual([
       { matcher: "gpt", hooks: [{ type: "command", command: "node /keep-me.mjs" }] },
-      { hooks: [{ type: "command", command: QODER_CMD }] },
+      { hooks: [{ type: "command", command: QODER_CMD, timeout: 5 }] },
     ]);
     expect(entries(doc, "UserPromptSubmit")).toEqual([
       { hooks: [{ type: "command", command: QODER_CMD, timeout: 5 }] },

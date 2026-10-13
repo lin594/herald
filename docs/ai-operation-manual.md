@@ -299,7 +299,7 @@ cp examples/codex/skills/agent-notify/SKILL.md ~/.codex/skills/agent-notify/SKIL
 }
 ```
 
-Keep `notifyPermissionRequests` at `true`. It decides whether the monitor ever **sees** a permission request, not whether your phone rings: a request that reaches the server is recorded as a wait and pushed only if it is still unanswered after `HERALD_WAITING_GRACE_SECONDS` (default 60 s), so the ones auto-approval answers in seconds stay silent on their own. Setting it to `false` does not tune the phone — it blinds the monitor, and the waits that genuinely need you go quiet too.
+Keep `notifyPermissionRequests` at `true`. Leave `HERALD_CODEX_APPROVAL_ALERTS=false` and both heartbeat intervals at their default `1800` in the server `.env`.
 
 **Get the adapter's absolute path**:
 
@@ -342,19 +342,88 @@ After merging, have the user restart Claude Code so the settings take effect.
 
 ### 3.2 Codex hooks
 
-Merge the block below into the user-level `~/.codex/hooks.json`; if hooks already exist, merge these three events in.
+Merge the block below into the user-level `~/.codex/hooks.json`; if hooks already exist, merge these seven events in.
 
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "PermissionRequest": [
-      { "hooks": [ { "type": "command", "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(functions\\.)?request_user_input$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABS/PATH/.config/agent-notify/codex-agent-notify.mjs",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
@@ -378,7 +447,7 @@ After restarting Claude Code, trigger an operation that needs permission or a qu
 
 ### 4.3 Codex
 
-Open Codex, confirm the hook is trusted if Codex asks, then trigger an operation that needs approval. For example, lower Codex's permissions and run a shell command that requires approval. A notification titled `Approve permission` / `需要批准` should arrive.
+Open Codex, review/trust the updated hooks if prompted, and run a turn longer than `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`. Expect one `Ready to review` notification when it ends. Verify an auto-approved permission request stays quiet.
 
 ### 4.4 When no notification arrives
 

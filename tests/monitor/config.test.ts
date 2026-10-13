@@ -78,3 +78,15 @@ describe("waiting grace", () => {
     expect(parseMonitorConfig({ HERALD_WAITING_GRACE_SECONDS: "0" }).waitingGraceSeconds).toBe(0);
   });
 });
+
+
+describe("quiet Codex defaults", () => {
+  it("uses a half-hour digest and silences automatic approval requests", () => {
+    const config = parseMonitorConfig({});
+    expect(config.codexApprovalAlerts).toBe(false);
+    expect(config.heartbeatFirstSeconds).toBe(1800);
+    expect(config.heartbeatNormalSeconds).toBe(1800);
+    expect(parseMonitorConfig({ HERALD_CODEX_APPROVAL_ALERTS: "true" }).codexApprovalAlerts).toBe(true);
+    expect(() => parseMonitorConfig({ HERALD_CODEX_APPROVAL_ALERTS: "yes" })).toThrow();
+  });
+});

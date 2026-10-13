@@ -3,6 +3,8 @@ import { access, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { hostname } from "node:os";
 import { loadDotenv, parseConfig } from "../config/env.js";
+import { parseMonitorConfig } from "../monitor/config.js";
+import { passesSeverityGate, resolveSeverity, SEVERITY_DELIVERY } from "../monitor/severity.js";
 import type { AppConfig, NamedToken } from "../config/env.js";
 
 const EMIT_TYPES = ["started", "milestone", "waiting", "blocked", "failed", "completed"];
@@ -143,6 +145,19 @@ async function doctor(): Promise<void> {
     return;
   }
   console.log("OK server health reachable");
+  const monitor = parseMonitorConfig(process.env);
+  if (monitor.enabled) {
+    console.log(`OK Codex approval alerts: ${monitor.codexApprovalAlerts ? "manual opt-in" : "silent (approve-for-me)"}`);
+    const severity = resolveSeverity({ kind: "heartbeat", title: "", body: "" }, monitor);
+    const delivery = passesSeverityGate(severity, monitor) ? SEVERITY_DELIVERY[severity] : "suppressed";
+    console.log(`OK progress digest: first ${monitor.heartbeatFirstSeconds / 60} min, then ${monitor.heartbeatNormalSeconds / 60} min (delivery=${delivery})`);
+    if (!monitor.transcriptDir) {
+      console.log("WARN no HERALD_TRANSCRIPT_DIR — digests cannot quote Codex progress. Configure the read-only sessions mount.");
+    } else {
+      const readable = await access(monitor.transcriptDir).then(() => true, () => false);
+      if (!readable) console.log(`WARN transcript directory unavailable: ${monitor.transcriptDir}`);
+    }
+  }
 
   const statusRes = await fetch(`${serverBase(config)}/status`).catch(() => null);
   if (statusRes?.ok) {

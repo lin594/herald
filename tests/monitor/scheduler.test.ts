@@ -22,13 +22,14 @@ const config: MonitorConfig = {
   stallSeconds: 1500,
   heartbeatMaxPerHour: 3,
   waitingGraceSeconds: 60,
+  codexApprovalAlerts: true,
   hostHeartbeatTimeoutSeconds: 180,
   watchIntervalSeconds: 30,
   gitScanIntervalSeconds: 60,
   scanMaxFiles: 5000,
   maxBodyChars: 1200,
   minSeverity: "info",
-  severityMap: {},
+  severityMap: { milestone: "notice", resumed: "info" },
   transcriptDir: null,
   qoderDir: null,
   workspaces: [],
@@ -258,6 +259,7 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
       lastActivityMs: T0,
       turnStartedMs: null,
       lastTurnMs: null,
+    lastTurnKey: null,
     });
     store.recordHostHeartbeat({ hostname: "mbp", nowMs: T0 + 1501_000 });
     await scheduler.run(T0 + 1501_000);

@@ -18,6 +18,9 @@ const SCHEMA_VERSION = "1";
  * `/data`.
  */
 const ADDED_COLUMNS: { name: string; ddl: string }[] = [
+  { name: "last_turn_key", ddl: "ALTER TABLE sessions ADD COLUMN last_turn_key TEXT" },
+  { name: "waiting_kind", ddl: "ALTER TABLE sessions ADD COLUMN waiting_kind TEXT" },
+  { name: "waiting_tool_id", ddl: "ALTER TABLE sessions ADD COLUMN waiting_tool_id TEXT" },
   { name: "last_turn_ms", ddl: "ALTER TABLE sessions ADD COLUMN last_turn_ms INTEGER" },
   {
     name: "waiting_since_ms",
@@ -42,11 +45,14 @@ const MIGRATIONS: string[] = [
     last_activity_ms INTEGER NOT NULL,
     turn_started_ms INTEGER,
     last_turn_ms INTEGER,
+    last_turn_key TEXT,
     last_heartbeat_ms INTEGER,
     last_stage TEXT,
     last_message TEXT,
     waiting_since_ms INTEGER,
     waiting_on TEXT,
+    waiting_kind TEXT,
+    waiting_tool_id TEXT,
     changed_files INTEGER NOT NULL DEFAULT 0,
     insertions INTEGER NOT NULL DEFAULT 0,
     deletions INTEGER NOT NULL DEFAULT 0,

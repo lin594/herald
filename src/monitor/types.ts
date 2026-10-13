@@ -37,6 +37,7 @@ export interface SessionRecord {
   turnStartedMs: number | null;
   /** Duration of the last completed turn; what a `Stop` push reports as "本轮". */
   lastTurnMs: number | null;
+  lastTurnKey: string | null;
   lastHeartbeatMs: number | null;
   lastStage: string | null; // last milestone/completed message
   /**
@@ -48,6 +49,8 @@ export interface SessionRecord {
   waitingSinceMs: number | null;
   /** What it is waiting on, e.g. the tool name behind a permission request. */
   waitingOn: string | null;
+  waitingKind: "approval" | "input" | null;
+  waitingToolId: string | null;
   changedFiles: number;
   insertions: number;
   deletions: number;

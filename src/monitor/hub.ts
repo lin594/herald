@@ -78,12 +78,10 @@ export interface EarlyResponse {
 
 /**
  * Ingests every incoming event (hook events, cooperative emits, host
- * observations and heartbeats) into the durable execution model. Hook-agent
- * events update state here and their user-facing notification stays on the
- * existing upstream path — except a question the agent may answer itself
- * (`PermissionRequest`, approval `Notification`), which is held here so the
- * monitor can push it only once the wait has proven real. Emit events notify
- * through the monitor notifier (dedup + rate limit + persistence).
+ * observations and heartbeats) into the durable execution model. Codex hooks
+ * share the monitor notifier's severity and durable turn dedup. Other agents
+ * retain the upstream notification path, except requests held by the grace
+ * policy. Cooperative emits also use the monitor notifier.
  */
 export class MonitorHub {
   private readonly startedMs = Date.now();
@@ -99,6 +97,10 @@ export class MonitorHub {
       if (incoming.agent === "emit") {
         return await this.handleEmit(incoming, tokenName, nowMs);
       }
+      if (incoming.agent === "codex") {
+        const handled = await this.handleCodexHook(incoming, tokenName, nowMs);
+        if (handled) return handled;
+      }
       if (this.applyHookState(incoming, tokenName, nowMs)) {
         return {
           status: 200,
@@ -112,8 +114,55 @@ export class MonitorHub {
         "[herald] hub ingest failed:",
         error instanceof Error ? error.message : String(error),
       );
-      return null;
+      return incoming.agent === "codex"
+        ? { status: 503, body: { ok: false, notified: false, error: "monitor_ingest_failed" } }
+        : null;
     }
+  }
+
+  /** Codex notifications share the monitor's severity and durable dedup policy. */
+  private async handleCodexHook(
+    incoming: IncomingAgentEvent,
+    tokenName: string,
+    nowMs: number,
+  ): Promise<EarlyResponse | null> {
+    const raw = isRecord(incoming.raw) ? incoming.raw : {};
+    const event = str(raw.hook_event_name);
+    const id = str(raw.session_id);
+    if (!id || !event) return null;
+    const handled = ["UserPromptSubmit", "PermissionRequest", "PreToolUse", "PostToolUse", "Stop", "Interrupt", "SessionEnd"];
+    if (!handled.includes(event)) return null;
+    const key = `${tokenName}:${id}`;
+    // Repeated request hooks do not restart the grace period or re-arm a push.
+    this.applyHookState(incoming, tokenName, nowMs);
+    const session = this.deps.store.getSession(key)!;
+    if (event !== "Stop") {
+      return { status: 200, body: { ok: true, notified: false, reason:
+        event === "PermissionRequest"
+          ? this.deps.config.codexApprovalAlerts ? "waiting_grace" : "auto_approval_silent"
+          : "state_recorded" } };
+    }
+    if (raw.stop_hook_active === true) {
+      return { status: 200, body: { ok: true, notified: false, reason: "stop_hook_active" } };
+    }
+    const duration = session.lastTurnMs;
+    if (this.deps.completionMinSeconds <= 0 || duration == null || !session.lastTurnKey || duration < this.deps.completionMinSeconds * 1000) {
+      return { status: 200, body: { ok: true, notified: false, reason: "short_or_disabled_completion" } };
+    }
+    const text = (str(raw.last_assistant_message) ?? session.lastMessage ?? "")
+      .replace(/\s+/g, " ").trim();
+    const fallback = this.deps.config.language === "zh" ? "本轮已结束，请查看结果" : "Turn finished; review the result";
+    const notified = await this.deps.notifier.notify(key, {
+      kind: "completed",
+      title: composeTitle(["Codex", readableProject(session.project, this.deps.config.language) ?? readableProject(id, this.deps.config.language), stateLabel("review", this.deps.config.language)]),
+      body: [text.length > 160 ? `${text.slice(0, 159)}…` : text || fallback,
+        digestLine({ turnMs: duration }, this.deps.config.language)].filter(Boolean).join("\n"),
+      // A second Stop (or a retry after restart) is still the same turn even
+      // when its text changes. Short turns never enter the provider pipeline.
+      dedupKey: session.lastTurnKey,
+    }, nowMs, { group: "Codex" });
+    // A failed provider call remains retryable with this same turn identity.
+    return { status: 200, body: { ok: true, notified } };
   }
 
   // ── hook state ingestion ─────────────────────────────────────────────────
@@ -137,6 +186,8 @@ export class MonitorHub {
 
     const cwd = str(raw.cwd);
     const key = `${tokenName}:${sessionId}`;
+    const previous = this.deps.store.getSession(key);
+    if (hookEvent === "Stop" && raw.stop_hook_active === true) return false;
     this.deps.store.upsertSession({
       key,
       sessionId,
@@ -165,15 +216,69 @@ export class MonitorHub {
       fields.turnStartedMs = nowMs;
       fields.waitingSinceMs = null;
       fields.waitingOn = null;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
+      fields.lastMessage = null;
       // The prompt itself is deliberately not stored: it is the one piece of
       // text on this path that must never reach a push, and keeping it out of
       // the row makes that structural rather than a redaction race.
       clearKinds = ["waiting", "blocked", "failed", "possible_stall", "resumed"];
     } else if (hookEvent === "PermissionRequest") {
+      if (incoming.agent === "codex" && !this.deps.config.codexApprovalAlerts) {
+        // A request is not evidence that approve-for-me failed or that a human
+        // is needed. Keep the event, and let real progress/stall evidence speak.
+        return true;
+      }
+      const sameWait = previous?.status === "WAITING_USER" && previous.waitingKind === "approval" &&
+        previous.waitingOn === (str(raw.tool_name)?.slice(0, 200) ?? null);
       fields.status = "WAITING_USER";
-      fields.waitingSinceMs = nowMs;
+      fields.waitingSinceMs = sameWait ? previous.waitingSinceMs : nowMs;
       fields.waitingOn = str(raw.tool_name)?.slice(0, 200) ?? null;
-      clearKinds = ["waiting"];
+      fields.waitingKind = "approval";
+      fields.waitingToolId = str(raw.tool_use_id) ?? null;
+      if (!sameWait) clearKinds = ["waiting"];
+    } else if (hookEvent === "PreToolUse" && incoming.agent === "codex") {
+      const name = str(raw.tool_name)?.split(".").pop();
+      if (name !== "request_user_input") return false;
+      const input = isRecord(raw.tool_input) ? raw.tool_input : {};
+      const questions = Array.isArray(input.questions) ? input.questions : [];
+      const question = questions.find((q) => isRecord(q) && str(q.question));
+      fields.status = "WAITING_USER";
+      fields.waitingSinceMs = previous && previous.waitingToolId === str(raw.tool_use_id) && previous.waitingKind === "input"
+        ? previous.waitingSinceMs : nowMs;
+      fields.waitingOn = isRecord(question) ? str(question.question)?.slice(0, 200) ?? null : null;
+      fields.waitingKind = "input";
+      fields.waitingToolId = str(raw.tool_use_id) ?? null;
+      if (previous?.waitingToolId !== fields.waitingToolId || previous?.waitingKind !== "input") clearKinds = ["waiting"];
+    } else if (hookEvent === "PostToolUse" && incoming.agent === "codex") {
+      // A parallel tool completing does not answer a different pending question.
+      if (previous?.waitingKind === "input" && (!previous.waitingToolId || previous.waitingToolId !== str(raw.tool_use_id))) return false;
+      if (previous?.waitingKind === "approval") {
+        const matches = previous.waitingToolId
+          ? previous.waitingToolId === str(raw.tool_use_id)
+          : previous.waitingOn === str(raw.tool_name);
+        if (!matches) return false;
+      }
+      // Late async hooks after Stop must not re-open an idle turn.
+      if (!previous || previous.turnStartedMs === null && previous.status !== "WAITING_USER") return false;
+      if (previous.status === "WAITING_USER" && previous.waitingSinceMs === null) return false;
+      fields.status = "ACTIVE";
+      fields.lastActivityMs = nowMs;
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
+      clearKinds = ["waiting", "possible_stall", "resumed"];
+    } else if (hookEvent === "Interrupt" && incoming.agent === "codex") {
+      fields.status = "UNKNOWN";
+      fields.turnStartedMs = null;
+      fields.lastTurnMs = 0;
+      fields.lastActivityMs = nowMs;
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
+      clearKinds = ["waiting", "possible_stall", "resumed"];
     } else if (hookEvent === "Stop") {
       const session = this.deps.store.getSession(key);
       const turnStartedMs = session?.turnStartedMs ?? null;
@@ -181,7 +286,7 @@ export class MonitorHub {
       if (turnSeconds != null && turnSeconds >= this.deps.completionMinSeconds) {
         fields.status = "WAITING_USER"; // long turn finished: ready for review
       } else {
-        fields.status = "ACTIVE";
+        fields.status = turnStartedMs === null && session?.status === "WAITING_USER" ? "WAITING_USER" : "ACTIVE";
       }
       fields.turnStartedMs = null;
       // A turn boundary ends any pending question with it: what is left is a
@@ -190,8 +295,11 @@ export class MonitorHub {
       fields.waitingOn = null;
       // Remember the turn this Stop closed: the push built from this event is
       // about that turn, and the row no longer carries its start.
-      fields.lastTurnMs = turnStartedMs == null ? null : nowMs - turnStartedMs;
-      fields.lastActivityMs = nowMs;
+      fields.lastTurnMs = turnStartedMs == null ? session?.lastTurnMs ?? null : nowMs - turnStartedMs;
+      fields.lastTurnKey = turnStartedMs == null ? session?.lastTurnKey ?? null : str(raw.turn_id) ?? `turn-started:${turnStartedMs}`;
+      fields.lastActivityMs = turnStartedMs == null ? session?.lastActivityMs ?? nowMs : nowMs;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
     } else if (hookEvent === "Notification") {
       // Qoder/Claude-Code user-facing prompt (permission or idle): the agent
@@ -201,7 +309,11 @@ export class MonitorHub {
       fields.waitingOn = str(raw.message)?.slice(0, 200) ?? null;
       fields.lastMessage = str(raw.message)?.slice(0, 200) ?? null;
     } else if (hookEvent === "StopFailure" || hookEvent === "SessionEnd") {
-      fields.status = hookEvent === "StopFailure" ? "FAILED" : "COMPLETED";
+      fields.status = hookEvent === "StopFailure" ? "FAILED" : incoming.agent === "codex" ? "UNKNOWN" : "COMPLETED";
+      fields.turnStartedMs = null;
+      fields.lastTurnMs = 0;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
       fields.waitingSinceMs = null;
       fields.waitingOn = null;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
@@ -264,6 +376,12 @@ export class MonitorHub {
       lastActivityMs: nowMs,
       lastMessage: message.slice(0, 200),
     };
+    if (kind !== "waiting") {
+      fields.waitingSinceMs = null;
+      fields.waitingOn = null;
+      fields.waitingKind = null;
+      fields.waitingToolId = null;
+    }
     if (kind === "milestone" || kind === "completed") {
       fields.lastStage = message.slice(0, 200);
     }
@@ -391,6 +509,8 @@ export class MonitorHub {
           startedAt: new Date(session.startedAtMs).toISOString(),
           lastActivity: new Date(session.lastActivityMs).toISOString(),
           lastMessage: session.lastMessage,
+          waitingKind: session.waitingKind,
+          waitingOn: session.waitingOn,
           changedFiles: session.changedFiles,
           insertions: session.insertions,
           deletions: session.deletions,

@@ -126,11 +126,12 @@ export function scanActiveSessionIds(sessionsDir, nowMs, windowMs = TRANSCRIPT_A
           continue;
         }
         for (const file of files) {
-          const match = file.match(/rollout-.*-([0-9a-f-]{36})\.jsonl$/i);
-          if (!match) continue;
+          if (!file.startsWith("rollout-") || !file.endsWith(".jsonl")) continue;
+          const id = file.match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/i)?.[0];
+          if (!id) continue;
           try {
             const stat = statSync(join(sessionsDir, year, month, day, file));
-            if (nowMs - stat.mtimeMs <= windowMs) ids.push(match[1]);
+            if (nowMs - stat.mtimeMs <= windowMs) ids.push(id);
           } catch {
             // raced with rotation; ignore
           }
@@ -245,20 +246,23 @@ export async function tickOnce(config, state, nowMs = Date.now(), deps = {}) {
   });
 
   const processes = await collectProcs();
-  const sessionIds = [
+  const sessionIds = [...new Set([
+    ...processes.flatMap((process) => process.command.match(/(?:resume|fork)\s+([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})(?:\s|$)/i)?.[1] ?? []),
     ...scan(config.codexSessionsDir, nowMs),
     ...(deps.scanActiveQoderSessionIds ?? scanActiveQoderSessionIds)(
       config.qoderProjectsDir,
       nowMs,
     ),
-  ];
+  ])];
   const observationsOk = await post(config.serverUrl, config.token, "/observations", {
     hostname: host,
     ...(sleepGapSeconds != null ? { sleep_gap_seconds: sleepGapSeconds } : {}),
     sessions: sessionIds.map((sessionId) => ({
       session_id: sessionId,
       observed_at_ms: nowMs,
-      processes,
+      // A generic Codex process (or the desktop app-server) owns no known
+      // session. Only an explicit resume/fork id is safe to attribute here.
+      processes: processes.filter((process) => new RegExp(`(?:resume|fork)\\s+${sessionId}(?:\\s|$)`).test(process.command)),
     })),
   });
 

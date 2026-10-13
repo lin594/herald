@@ -37,9 +37,9 @@ export const DEFAULT_SEVERITIES: Record<string, NotifySeverity> = {
   // A cooperative agent announcing itself is activity, not a state change.
   started: "debug",
   heartbeat: "info",
-  resumed: "info",
+  resumed: "debug",
   host_lost: "notice",
-  milestone: "notice",
+  milestone: "debug",
   completed: "notice",
   possible_stall: "notice",
   waiting: "critical",

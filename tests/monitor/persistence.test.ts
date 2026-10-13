@@ -159,7 +159,29 @@ describe("schema forward migration", () => {
     expect(store.getSession("macbook:s2")).toMatchObject({
       waitingSinceMs: null,
       waitingOn: null,
+      waitingKind: null,
+      waitingToolId: null,
     });
     db2.close();
   });
+});
+
+
+it("migrates and preserves typed waits and completion identities across restarts", () => {
+  const path = join(dir, "codex-quiet-migration.sqlite3");
+  const db = openDatabase(path);
+  new MonitorStore(db).upsertSession({ key: "mac:s", sessionId: "s", agentType: "codex", nowMs: T0 });
+  for (const column of ["waiting_kind", "waiting_tool_id", "last_turn_key"]) db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+  db.close();
+  const upgraded = openDatabase(path);
+  const store = new MonitorStore(upgraded);
+  store.updateSession("mac:s", { waitingKind: "input", waitingToolId: "question", lastTurnKey: "turn1" });
+  const fingerprint = fingerprintOf("mac:s", "completed", "turn1");
+  store.rememberFingerprint("mac:s", "completed", fingerprint, T0);
+  upgraded.close();
+  const reopened = openDatabase(path);
+  const next = new MonitorStore(reopened);
+  expect(next.getSession("mac:s")).toMatchObject({ waitingKind: "input", waitingToolId: "question", lastTurnKey: "turn1" });
+  expect(next.isDuplicateFingerprint("mac:s", "completed", fingerprint)).toBe(true);
+  reopened.close();
 });
