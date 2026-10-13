@@ -38,6 +38,17 @@ describe("Codex quiet Bark policy", () => {
     expect(f.store.recentEvents(200)).toHaveLength(101);
   });
 
+  it("does not replay legacy or disabled approval timers after an upgrade", async () => {
+    for (const waitingKind of [null, "approval"] as const) {
+      const f = fixture();
+      await f.hook("UserPromptSubmit", T0);
+      f.store.updateSession("mac:thread", { status: "WAITING_USER", waitingSinceMs: T0, waitingOn: "Bash", waitingKind });
+      await f.scheduler.run(T0 + 120_000);
+      expect(f.sent).toHaveLength(0);
+      expect(f.store.getSession("mac:thread")).toMatchObject({ status: "UNKNOWN", waitingSinceMs: null, waitingOn: null });
+    }
+  });
+
   it("a resolved manual approval stays quiet; duplicate request hooks do not rearm it", async () => {
     const f = fixture({ HERALD_CODEX_APPROVAL_ALERTS: "true" });
     await f.hook("UserPromptSubmit", T0);

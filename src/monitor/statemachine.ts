@@ -162,6 +162,20 @@ export function evaluateSessionTick(
   const needsUser =
     session.status === "WAITING_USER" || session.status === "BLOCKED";
 
+  // Old volumes predate typed waits. A legacy Codex approval timer must not
+  // page after upgrading to approve-for-me, or when manual alerts are disabled.
+  // Only newly observed progress can establish what that old turn is doing.
+  if (session.agentType === "codex" && session.status === "WAITING_USER" &&
+      session.waitingSinceMs != null && session.waitingKind !== "input" && !config.codexApprovalAlerts) {
+    result.updates.status = "UNKNOWN";
+    result.updates.waitingSinceMs = null;
+    result.updates.waitingOn = null;
+    result.updates.waitingKind = null;
+    result.updates.waitingToolId = null;
+    result.clearedDedupKinds.push("waiting");
+    return result;
+  }
+
   if (needsUser || terminal) {
     // Waiting/blocked/failed/completed: user-facing state already announced;
     // activity while waiting means the user answered, so return to ACTIVE.
