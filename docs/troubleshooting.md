@@ -1,7 +1,10 @@
 # Troubleshooting
 
-Start with `./herald doctor` — it checks config, provider, log dir, health, and
-whether a Host Bridge has ever checked in. Then the container logs:
+Start with `./herald doctor` — it checks Docker/service availability before
+entering the container, then config, log dir, API responses and recent Host
+Bridge heartbeats. API probes time out after five seconds; stale or unreachable
+bridges are reported even when their old records remain in the database.
+This does not test delivery to your device. Then the container logs:
 `./herald logs`.
 
 ## No notifications at all
