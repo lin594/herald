@@ -8,6 +8,10 @@ import { CooldownPolicy } from "../../src/server/cooldown-policy.js";
 import { CodexSessionPolicy } from "../../src/server/codex-session-policy.js";
 import type { FormattedAgentEvent } from "../../src/core/formatted-event.js";
 import type { IncomingAgentEvent } from "../../src/core/incoming-event.js";
+import { MonitorNotifier } from "../../src/monitor/notifier.js";
+import { MonitorScheduler } from "../../src/monitor/scheduler.js";
+import { parseMonitorConfig } from "../../src/monitor/config.js";
+import type { NotificationPayload } from "../../src/providers/types.js";
 
 const T0 = 1_700_000_000_000;
 const dir = mkdtempSync(join(tmpdir(), "herald-db-"));
@@ -26,6 +30,25 @@ function permissionEvent(sessionId: string): FormattedAgentEvent {
 }
 
 describe("monitor persistence across restarts", () => {
+  it("keeps unanswered async questions and their delivery dedup across close/reopen", async () => {
+    const file = join(dir, "async.sqlite3");
+    const config = parseMonitorConfig({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    const sent: NotificationPayload[] = [];
+    const provider = { name: "mock", send: async (payload: NotificationPayload) => { sent.push(payload); return { ok: true }; } };
+    const db = openDatabase(file);
+    const store = new MonitorStore(db);
+    store.upsertSession({ key: "mac:s", sessionId: "s", agentType: "codex", nowMs: T0, project: "P" });
+    store.updateSession("mac:s", { status: "ACTIVE", waitingKind: "input_async", waitingToolId: "q1", waitingSinceMs: T0, waitingOn: "选择 A 还是 B？" });
+    await new MonitorScheduler(store, new MonitorNotifier(store, provider, config), config).run(T0 + 61_000);
+    expect(sent).toHaveLength(1);
+    db.close();
+    const reopened = openDatabase(file);
+    const store2 = new MonitorStore(reopened);
+    expect(store2.getSession("mac:s")?.waitingKind).toBe("input_async");
+    await new MonitorScheduler(store2, new MonitorNotifier(store2, provider, config), config).run(T0 + 121_000);
+    expect(sent).toHaveLength(1);
+    reopened.close();
+  });
   it("survives session, dedup and host state through close/reopen", () => {
     const db = openDatabase(dbPath);
     const store = new MonitorStore(db);

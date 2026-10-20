@@ -631,7 +631,7 @@ Merge the following into the user-level `~/.codex/hooks.json`. If you already ha
     ],
     "PreToolUse": [
       {
-        "matcher": "^(functions\\.)?request_user_input$",
+        "matcher": "^(functions\\.)?request_user_input(_async)?$",
         "hooks": [
           {
             "type": "command",
@@ -701,7 +701,7 @@ pnpm dev
 
 Run a task longer than `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`. A completion notification fires when the task ends. Short tasks do not trigger completion notifications.
 
-With the default approve-for-me profile, an approval request must not produce a push, even after the grace period. To test manual approval alerts, set `HERALD_CODEX_APPROVAL_ALERTS=true`, restart the server, leave a request pending past `HERALD_WAITING_GRACE_SECONDS`, and expect one `Approval Pending` push. Completing the matching tool clears the wait. A blocking `request_user_input` question produces `Need Input`, independently of the approval opt-in.
+With the default approve-for-me profile, an approval request must not produce a push, even after the grace period. To test manual approval alerts, set `HERALD_CODEX_APPROVAL_ALERTS=true`, restart the server, leave a request pending past `HERALD_WAITING_GRACE_SECONDS`, and expect one `Approval Pending` push. Completing the matching tool clears the wait. Both `request_user_input` and `request_user_input_async` ask you to return to your computer and choose or fill in an answer in Codex, including the question and option labels, independently of the approval opt-in. Async questions say `Your answer is needed`; other work may still continue.
 
 ## Herald: quiet Codex monitoring
 
@@ -710,20 +710,24 @@ These defaults apply with `HERALD_ENABLED=true` (the default). Disabling Herald 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `HERALD_CODEX_APPROVAL_ALERTS` | `false` | Record approval requests silently for approve-for-me. Enable for manual approvals only. An approval-request hook is not a confirmed human wait. |
-| `HERALD_WAITING_GRACE_SECONDS` | `60` | Delay blocking questions and opted-in approvals; `0` delivers at the next evaluation tick. Matching `PostToolUse` ends the wait. |
+| `HERALD_WAITING_GRACE_SECONDS` | `60` | Delay synchronous/async questions and opted-in approvals; `0` delivers at the next evaluation tick. Matching `PostToolUse` clears synchronous questions. An async tool return only opens the panel; a new user input, interrupt or session close clears that question. |
 | `HERALD_HEARTBEAT_FIRST_SECONDS` | `1800` | First quiet progress digest after 30 minutes of work. |
-| `HERALD_HEARTBEAT_NORMAL_SECONDS` | `1800` | Further digests every 30 minutes when there has been observable activity. |
+| `HERALD_HEARTBEAT_NORMAL_SECONDS` | `1800` | Check every 30 minutes and deliver only when digest content has changed. |
 | `HERALD_MIN_SEVERITY` | `info` | Heartbeats use Bark `passive`; completion/stall use `active`; explicit waiting/failure use `timeSensitive`. |
 | `HERALD_SEVERITY_MAP` | empty | Routine `milestone` and `resumed` are `debug` and do not push by default. Set `heartbeat=debug` to mute digests. |
 
-Digests quote the latest public assistant progress update for the current turn, followed by brief timing/context. They do not read internal reasoning, prompts or tool output. For Codex desktop's `phase: commentary` and CLI's `channel: commentary`, mount the transcript directory read-only:
+`Progress update` digests quote the latest public assistant update for the current turn, followed by the turn duration and context. The lifetime of a days-old conversation is not presented as continuous work. Each new turn restarts the first-digest clock. Unchanged progress does not push again as the clock advances; clocks or process activity alone do not warrant a digest. They do not read internal reasoning, prompts or tool output. For Codex desktop's `phase: commentary` and CLI's `channel: commentary`, mount the transcript directory read-only:
 
 ```bash
 HERALD_HOST_CODEX_SESSIONS_DIR=/absolute/path/to/.codex/sessions
 HERALD_TRANSCRIPT_DIR=/host/.codex/sessions
 ```
 
-Without a readable transcript, the digest reports observed timing/context without inventing a progress summary. Finished, interrupted and waiting sessions do not send running digests. A silent in-flight turn produces one possible-stall alert at 25 minutes (`HERALD_STALL_SECONDS=1500`), rather than claiming it is progressing. The transcript format is best-effort, not a stable Codex API; hooks remain the main state source. Remote sessions need Herald and hooks on their execution host.
+Known sessions remain readable in their original date directories beyond the three-day discovery window. Without a readable transcript, the monitor does not invent progress; a digest with no useful content stays quiet. Finished, interrupted and waiting sessions do not send running digests. A silent in-flight turn produces one possible-stall alert at 25 minutes (`HERALD_STALL_SECONDS=1500`), rather than claiming it is progressing. The transcript format is best-effort, not a stable Codex API; hooks remain the main state source. Remote sessions need Herald and hooks on their execution host.
+
+Questions take priority over completion: an unanswered async question suppresses the separate ready-to-review push. Existing `PostToolUse` hooks can report async questions even before the new `PreToolUse` matcher is installed. Notification previews turn Markdown links into labels, remove long URLs and code markers, and only then shorten the text. Full content and links remain in the task on your computer.
+
+Bark pushes carry a stable `id`, reused across network retries to reduce duplicate cards. This requires Bark 1.5.2 / bark-server 2.2.5 or later ([Bark parameters](https://github.com/Finb/Bark/blob/master/docs/en-us/params.md#id)).
 
 When upgrading, rerun `./herald install-host`, review/trust the changed hooks in Codex, and run `./herald up` to rebuild. Existing explicit heartbeat values in `.env` remain effective; set both heartbeat intervals to `1800` for the half-hour cadence. Existing SQLite volumes migrate in place and preserve delivery dedup.
 

@@ -9,6 +9,7 @@ import { MonitorHub } from "../../src/monitor/hub.js";
 import { evaluateSessionTick } from "../../src/monitor/statemachine.js";
 import { classifyTranscriptTail, latestCodexProgress } from "../../src/monitor/observers.js";
 import type { NotificationPayload } from "../../src/providers/types.js";
+import { handleCodexEvent, parseCodexConfig } from "../../examples/codex/codex-agent-notify.mjs";
 
 const T0 = 1_700_000_000_000;
 const closes: (() => void)[] = [];
@@ -71,20 +72,115 @@ describe("Codex quiet Bark policy", () => {
     await f.scheduler.run(T0 + 80_000);
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0].title).toContain("等你输入");
-    expect(f.sent[0].body).toBe("选择哪个部署环境？");
+    expect(f.sent[0].body).toBe("请回到电脑，在 Codex 中选择或填写。\n选择哪个部署环境？");
     expect(f.sent[0].level).toBe("timeSensitive");
     await f.hook("PostToolUse", T0 + 90_000, { tool_use_id: "question" });
     expect(f.store.getSession("mac:thread")?.status).toBe("ACTIVE");
   });
 
-  it("nonblocking questions and routine milestones do not page the user", async () => {
+  it("routine milestones do not page the user", async () => {
     const f = fixture();
     await f.hook("UserPromptSubmit", T0);
-    await f.hook("PreToolUse", T0 + 1000, { tool_name: "request_user_input_async" });
     await f.hub.handleIncoming({ agent: "emit", raw: { type: "milestone", message: "one file saved", session_id: "thread", agent_type: "codex" } }, "mac", T0 + 2000);
     await f.notifier.notify("mac:thread", { kind: "resumed", title: "Resumed", body: "more activity" }, T0 + 3000);
     expect(f.sent).toHaveLength(0);
     expect(f.store.getSession("mac:thread")?.status).toBe("ACTIVE");
+  });
+
+  it("async choices alert once with the action and options, even while other tools continue", async () => {
+    const f = fixture({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    await f.hook("UserPromptSubmit", T0);
+    const question = { tool_name: "functions.request_user_input_async", tool_use_id: "q1", tool_input: { questions: [{ title: "演示库每次上线要如何处理？", options: ["保留数据，冲突时停止", "备份后重建"] }] } };
+    await f.hook("PreToolUse", T0 + 1000, question);
+    await f.hook("PostToolUse", T0 + 2000, question);
+    await f.hook("PostToolUse", T0 + 3000, { tool_name: "Bash", tool_use_id: "parallel" });
+    await f.scheduler.run(T0 + 59_000);
+    expect(f.sent).toHaveLength(0);
+    await f.scheduler.run(T0 + 62_000);
+    await f.hook("PostToolUse", T0 + 70_000, question);
+    await f.scheduler.run(T0 + 80_000);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ title: "Codex · herald · 有问题等你回答", body: "请回到电脑，在 Codex 中选择或填写。\n演示库每次上线要如何处理？\n选项：保留数据，冲突时停止 / 备份后重建", level: "timeSensitive" });
+    expect(f.store.getSession("mac:thread")).toMatchObject({ status: "ACTIVE", waitingKind: "input_async", waitingSinceMs: T0 + 1000 });
+    await f.hook("UserPromptSubmit", T0 + 90_000);
+    expect(f.store.getSession("mac:thread")?.waitingSinceMs).toBeNull();
+  });
+
+  it("recovers an async question from PostToolUse alone and prioritizes it over turn completion", async () => {
+    const f = fixture({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    await f.hook("UserPromptSubmit", T0);
+    await f.hook("PostToolUse", T0 + 1000, { tool_name: "request_user_input_async", tool_use_id: "q1", tool_input: { questions: [{ title: "请在电脑上的登录页登录，完成后回复已登录。" }] } });
+    await f.hook("Stop", T0 + 121_000, { turn_id: "t1", last_assistant_message: "准备已完成，等待登录。" });
+    expect(f.sent).toHaveLength(0);
+    await f.scheduler.run(T0 + 130_000);
+    await f.scheduler.run(T0 + 1900_000);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0].body).toContain("请在电脑上的登录页登录");
+    expect(f.sent[0].title).toContain("有问题等你回答");
+    expect(f.store.getSession("mac:thread")?.waitingKind).toBe("input_async");
+  });
+
+  it("still asks the user to return to Codex when an older hook supplies no question text", async () => {
+    const f = fixture({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    await f.hook("UserPromptSubmit", T0);
+    await f.hook("PostToolUse", T0 + 1000, { tool_name: "request_user_input_async", tool_use_id: "q1" });
+    await f.scheduler.run(T0 + 62_000);
+    expect(f.sent[0]?.body).toBe("请回到电脑，在 Codex 中选择或填写。");
+  });
+
+  it("a quick answer clears an async prompt before the grace elapses", async () => {
+    const f = fixture();
+    await f.hook("UserPromptSubmit", T0);
+    await f.hook("PostToolUse", T0 + 1000, { tool_name: "request_user_input_async", tool_use_id: "q1", tool_input: { questions: [{ title: "Choose A or B", options: ["A", "B"] }] } });
+    await f.hook("UserPromptSubmit", T0 + 20_000);
+    await f.scheduler.run(T0 + 62_000);
+    expect(f.sent).toHaveLength(0);
+  });
+
+  it("a delayed async tool hook after interrupt cannot recreate a cancelled question", async () => {
+    const f = fixture();
+    await f.hook("UserPromptSubmit", T0);
+    await f.hook("Interrupt", T0 + 1000);
+    await f.hook("PostToolUse", T0 + 2000, { tool_name: "request_user_input_async", tool_use_id: "q1", tool_input: { questions: [{ title: "Stale question" }] } });
+    await f.scheduler.run(T0 + 62_000);
+    expect(f.sent).toHaveLength(0);
+    expect(f.store.getSession("mac:thread")?.waitingSinceMs).toBeNull();
+  });
+
+  it("delivers an async question through the real adapter and authenticated HTTP path", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(T0);
+    const f = fixture({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    await f.hook("UserPromptSubmit", T0);
+    const app = createApp({ tokens: [{ name: "mac", value: "token" }], provider: f.provider, logPath: "./data/async-test.jsonl", logRaw: false, language: "zh", claudeCompletionMinSeconds: 120, codexCompletionMinSeconds: 120, opencodeCompletionMinSeconds: 120, cooldownSeconds: 60, monitor: f.hub });
+    const result = await handleCodexEvent(parseCodexConfig({ serverUrl: "http://herald", token: "token" }), {
+      hook_event_name: "PostToolUse", session_id: "thread", tool_name: "request_user_input_async", tool_use_id: "q1",
+      tool_input: { questions: [{ title: "发布到哪里？", options: ["预发布", "生产"] }], private: "never forward" },
+      tool_response: { accepted: true, private: "never forward" },
+    }, { readState: () => ({ persistentDisabled: false, disabledSessions: {} }), fetchImpl: async (_url, init) => app.request("/events", init) });
+    expect(result.sent).toBe(true);
+    await f.scheduler.run(T0 + 61_000);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ body: "请回到电脑，在 Codex 中选择或填写。\n发布到哪里？\n选项：预发布 / 生产", id: expect.any(String), level: "timeSensitive" });
+    expect(JSON.stringify(f.store.recentEvents(5))).not.toContain("never forward");
+  });
+
+  it("only new progress earns another digest, and the first digest clock resets for each turn", async () => {
+    const f = fixture({ AGENT_NOTIFY_LANGUAGE: "zh" });
+    await f.hook("UserPromptSubmit", T0);
+    f.store.updateSession("mac:thread", { lastMessage: "测试通过，正在检查部署配置。" });
+    for (const t of [1800_000, 3600_000]) {
+      f.scheduler.recordObservation({ sessionId: "thread", atMs: T0 + t, processCount: 1 });
+      await f.scheduler.run(T0 + t);
+    }
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0].body).not.toContain("任务已跑");
+    f.store.updateSession("mac:thread", { lastMessage: "部署配置已检查，正在做回归测试。" });
+    f.scheduler.recordObservation({ sessionId: "thread", atMs: T0 + 5400_000, processCount: 1 });
+    await f.scheduler.run(T0 + 5400_000);
+    expect(f.sent).toHaveLength(2);
+    await f.hook("UserPromptSubmit", T0 + 100 * 3600_000);
+    await f.scheduler.run(T0 + 100 * 3600_000 + 120_000);
+    expect(f.sent).toHaveLength(2);
   });
 
   it("completion uses ordinary delivery, concise text and turn dedup, including concurrent Stops", async () => {

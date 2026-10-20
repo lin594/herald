@@ -245,7 +245,8 @@ export class MonitorScheduler {
     const out = new Map<string, TranscriptFacts>();
     const fresh = new Map<string, TranscriptStat>();
     if (this.config.transcriptDir) {
-      for (const [uuid, stat] of await scanTranscriptDir(this.config.transcriptDir)) {
+      const known = this.store.listSessions().filter((session) => session.agentType === "codex" && session.status !== "COMPLETED").map((session) => session.sessionId);
+      for (const [uuid, stat] of await scanTranscriptDir(this.config.transcriptDir, known)) {
         fresh.set(uuid, stat);
       }
     }

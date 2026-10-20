@@ -521,9 +521,9 @@ describe("Codex adapter example", () => {
 });
 
 
-it("forwards blocking questions only and sends progress without private output", async () => {
+it("forwards both question tools and sends progress without private output", async () => {
   expect(adapter.shouldForwardCodexEvent({ hook_event_name: "PreToolUse", tool_name: "functions.request_user_input" })).toBe(true);
-  expect(adapter.shouldForwardCodexEvent({ hook_event_name: "PreToolUse", tool_name: "request_user_input_async" })).toBe(false);
+  expect(adapter.shouldForwardCodexEvent({ hook_event_name: "PreToolUse", tool_name: "request_user_input_async" })).toBe(true);
   const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
   await adapter.handleCodexEvent(adapter.parseCodexConfig({ serverUrl: "http://server", token: "token" }), {
     hook_event_name: "PostToolUse", session_id: "s", tool_name: "Bash", tool_use_id: "call",
@@ -531,4 +531,17 @@ it("forwards blocking questions only and sends progress without private output",
   }, { readState: () => ({ persistentDisabled: false, disabledSessions: {} }), fetchImpl });
   const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
   expect(body.raw).toEqual({ hook_event_name: "PostToolUse", session_id: "s", tool_name: "Bash", tool_use_id: "call" });
+});
+
+it("forwards displayed async questions on PostToolUse without raw results or unrelated input", async () => {
+  const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
+  await adapter.handleCodexEvent(adapter.parseCodexConfig({ serverUrl: "http://server", token: "token" }), {
+    hook_event_name: "PostToolUse", session_id: "s", tool_name: "request_user_input_async", tool_use_id: "q1",
+    tool_input: { private: "secret command", questions: [{ title: "选择发布环境？", options: ["预发布", "生产"], private: "secret" }] },
+    tool_response: { accepted: true, private: "secret output" },
+  }, { readState: () => ({ persistentDisabled: false, disabledSessions: {} }), fetchImpl });
+  const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+  expect(body.raw.tool_input).toEqual({ questions: [{ title: "选择发布环境？", options: ["预发布", "生产"] }] });
+  expect(JSON.stringify(body)).not.toContain("secret");
+  expect(body.raw.tool_response).toBeUndefined();
 });

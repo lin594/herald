@@ -131,6 +131,21 @@ describe("workspace observers", () => {
     expect(fresh.get(TURN)?.path).toBe(resumed);
   });
 
+  it("finds known resumed threads in old date directories without discovering unrelated old sessions", async () => {
+    const sessionsRoot = join(root, "old-sessions");
+    for (const day of ["01", "14", "19", "20", "21"]) {
+      mkdirSync(join(sessionsRoot, "2026", "10", day), { recursive: true });
+    }
+    const old = join(sessionsRoot, "2026", "10", "01", `rollout-old-${UUID}.jsonl`);
+    writeFileSync(old, "{}\n");
+    const unrelated = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    writeFileSync(join(sessionsRoot, "2026", "10", "14", `rollout-old-${unrelated}.jsonl`), "{}\n");
+    expect((await scanTranscriptDir(sessionsRoot)).has(UUID)).toBe(false);
+    const indexed = await scanTranscriptDir(sessionsRoot, [UUID]);
+    expect(indexed.get(UUID)?.path).toBe(old);
+    expect(indexed.has(unrelated)).toBe(false);
+  });
+
   it("indexes Qoder transcripts as <project-slug>/<session-id>.jsonl", async () => {
     const qoderRoot = join(root, "..", `herald-qoder-${Date.now()}`);
     const project = join(qoderRoot, "-Users-me-workspace-lin594-my-repo");

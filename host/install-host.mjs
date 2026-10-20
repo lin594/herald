@@ -153,7 +153,7 @@ let codexQuestionHookChanged = ensureHooks(codexHooks, ["PreToolUse"], codexComm
 for (const entry of [...codexHooks.hooks.PreToolUse]) {
   const owned = (entry.hooks ?? []).filter((hook) => hook.command === codexCommand);
   if (owned.length === 0) continue;
-  const matcher = "^(functions\\.)?request_user_input$";
+  const matcher = "^(functions\\.)?request_user_input(_async)?$";
   if (entry.matcher === matcher) continue;
   const foreign = (entry.hooks ?? []).filter((hook) => hook.command !== codexCommand);
   if (foreign.length > 0) {

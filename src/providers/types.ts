@@ -1,4 +1,6 @@
 export interface NotificationPayload {
+  /** Stable delivery identity; Bark uses it to replace transport retries. */
+  id?: string;
   title: string;
   body: string;
   urgency: "normal" | "time_sensitive";

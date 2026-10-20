@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { promisify } from "node:util";
 import type { MonitorConfig, WorkspaceConfig } from "./config.js";
+import { notificationPreview } from "../core/notification-text.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -162,6 +163,7 @@ export interface TranscriptStat {
 /** Codex rollout files live in <transcriptDir>/YYYY/MM/DD/rollout-*-<uuid>.jsonl */
 export async function scanTranscriptDir(
   transcriptDir: string,
+  knownSessionIds: string[] = [],
 ): Promise<Map<string, TranscriptStat>> {
   const out = new Map<string, TranscriptStat>();
   const readDirs = async (dir: string): Promise<string[]> => {
@@ -173,15 +175,18 @@ export async function scanTranscriptDir(
     }
   };
   const dayPaths: string[] = [];
-  for (const year of (await readDirs(transcriptDir)).slice(-2)) {
-    for (const month of (await readDirs(join(transcriptDir, year))).slice(-2)) {
-      for (const day of (await readDirs(join(transcriptDir, year, month))).slice(-3)) {
+  for (const year of await readDirs(transcriptDir)) {
+    for (const month of await readDirs(join(transcriptDir, year))) {
+      for (const day of await readDirs(join(transcriptDir, year, month))) {
         dayPaths.push(join(transcriptDir, year, month, day));
       }
     }
   }
   dayPaths.sort();
-  for (const day of dayPaths.slice(-3)) {
+  const recentDays = new Set(dayPaths.slice(-3));
+  const known = new Set(knownSessionIds);
+  for (const day of dayPaths) {
+    if (!recentDays.has(day) && known.size === 0) continue;
     let files: string[] = [];
     try {
       files = await fs.readdir(day);
@@ -189,6 +194,10 @@ export async function scanTranscriptDir(
       continue;
     }
     for (const file of files.filter((name) => name.endsWith(".jsonl"))) {
+      const ids = basename(file, ".jsonl").match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/g) ?? [];
+      // Resumed threads keep their original directory, sometimes for weeks.
+      // Only stat known sessions outside the discovery window.
+      if (!recentDays.has(day) && !ids.some((id) => known.has(id))) continue;
       const full = join(day, file);
       try {
         const stat = await fs.stat(full);
@@ -196,9 +205,6 @@ export async function scanTranscriptDir(
         // `rollout-<ts>-<thread>_<turn>.jsonl`, while hooks report the thread
         // id, so every id in the name addresses this transcript. Where two
         // files claim one id, the later write is the live one.
-        const ids =
-          basename(file, ".jsonl").match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/g) ??
-          [];
         for (const uuid of ids) {
           const previous = out.get(uuid);
           if (previous && previous.mtimeMs >= stat.mtimeMs) continue;
@@ -384,7 +390,7 @@ export function latestCodexProgress(lines: string[]): PublicProgress | null {
     const text = content.filter((part) => isRecord(part) && ["output_text", "text"].includes(String(part.type)))
       .map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "").join(" ").replace(/\s+/g, " ").trim();
     const atMs = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
-    if (text && Number.isFinite(atMs)) return { message: text.slice(0, 200), atMs };
+    if (text && Number.isFinite(atMs)) return { message: notificationPreview(text), atMs };
   }
   return null;
 }

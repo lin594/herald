@@ -46,4 +46,14 @@ describe("BarkProvider", () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(401);
   });
+
+  it("keeps the notification id across an ambiguous network failure and retry", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("connection lost after send"))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const provider = new BarkProvider("https://api.day.app/device-key", fetchMock, 5000, [0]);
+    expect((await provider.send({ title: "T", body: "B", urgency: "normal" })).ok).toBe(true);
+    const payloads = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1].body)));
+    expect(payloads[0].id).toBeTypeOf("string");
+    expect(payloads[1].id).toBe(payloads[0].id);
+  });
 });

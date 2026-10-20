@@ -633,7 +633,7 @@ hook 负责识别 `/agent-notify` 命令并写入状态文件；skill 负责让 
     ],
     "PreToolUse": [
       {
-        "matcher": "^(functions\\.)?request_user_input$",
+        "matcher": "^(functions\\.)?request_user_input(_async)?$",
         "hooks": [
           {
             "type": "command",
@@ -703,7 +703,7 @@ pnpm dev
 
 运行一次超过 `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` 的任务。任务结束后会触发完成通知。短任务不会触发完成通知。
 
-默认 approve-for-me 配置下，审批请求即使超过宽限时间也应保持安静。测试手动审批通知时，设置 `HERALD_CODEX_APPROVAL_ALERTS=true` 并重启服务，让一次请求等待超过 `HERALD_WAITING_GRACE_SECONDS`，应只收到一条「等你批准」。对应工具完成后会清除等待。阻塞的 `request_user_input` 问题会单独显示「等你输入」，不受审批开关影响。
+默认 approve-for-me 配置下，审批请求即使超过宽限时间也应保持安静。测试手动审批通知时，设置 `HERALD_CODEX_APPROVAL_ALERTS=true` 并重启服务，让一次请求等待超过 `HERALD_WAITING_GRACE_SECONDS`，应只收到一条「等你批准」。对应工具完成后会清除等待。`request_user_input` 和 `request_user_input_async` 都会提醒你回到电脑，在 Codex 中选择或填写，并附上问题与选项；不受审批开关影响。异步提问显示「有问题等你回答」，并不表示其他工作已停止。
 
 ## Herald：安静的 Codex 监控
 
@@ -712,20 +712,24 @@ pnpm dev
 | 配置 | 默认值 | 作用 |
 | --- | --- | --- |
 | `HERALD_CODEX_APPROVAL_ALERTS` | `false` | 为 approve-for-me 静默记录审批请求；手动审批用户才开启。请求事件不等于确认需要你批准。 |
-| `HERALD_WAITING_GRACE_SECONDS` | `60` | 阻塞问题与已开启的审批提醒先等待宽限；`0` 表示下一次评估时通知。对应 `PostToolUse` 清除等待。 |
+| `HERALD_WAITING_GRACE_SECONDS` | `60` | 同步、异步问题与已开启的审批提醒先等待宽限；`0` 表示下一次评估时通知。同步问题由对应 `PostToolUse` 清除；异步工具返回只表示面板已打开，收到新用户输入或中断、关闭会话后才清除。 |
 | `HERALD_HEARTBEAT_FIRST_SECONDS` | `1800` | 持续工作 30 分钟后发第一条静默进度摘要。 |
-| `HERALD_HEARTBEAT_NORMAL_SECONDS` | `1800` | 之后有可观察活动时每半小时一条。 |
+| `HERALD_HEARTBEAT_NORMAL_SECONDS` | `1800` | 之后每半小时检查一次，只推送内容有变化的摘要。 |
 | `HERALD_MIN_SEVERITY` | `info` | 心跳使用 Bark `passive`；结束、疑似停滞使用 `active`；明确等待回答、失败使用 `timeSensitive`。 |
 | `HERALD_SEVERITY_MAP` | 空 | 普通 `milestone`、`resumed` 为 `debug`，默认不推送。设 `heartbeat=debug` 可关闭摘要。 |
 
-摘要引用本轮最新一条公开进度消息，再附简短的时间与上下文。不会读取内部思考、用户提示或工具输出。支持桌面版 `phase: commentary` 和 CLI 的 `channel: commentary`；需要只读挂载会话目录：
+「进展更新」引用本轮最新一条公开进度消息，再附本轮用时与上下文；不把多天会话的存在时间写成持续工作时长。新一轮重新计算首条摘要的等待时间。相同进展不会随计时变化重复推送；只有计时或进程活动、没有可读进展时不发摘要。不会读取内部思考、用户提示或工具输出。支持桌面版 `phase: commentary` 和 CLI 的 `channel: commentary`；需要只读挂载会话目录：
 
 ```bash
 HERALD_HOST_CODEX_SESSIONS_DIR=/你的绝对路径/.codex/sessions
 HERALD_TRANSCRIPT_DIR=/host/.codex/sessions
 ```
 
-读不到会话记录时，只报告观察到的时间与上下文，不编造进度总结。已结束、已中断、等待回答的会话不发运行心跳。仍在进行但没有可观察动作的本轮，会在 25 分钟（`HERALD_STALL_SECONDS=1500`）发一次疑似停滞提醒，不声称正在推进。会话格式属于尽力支持，不能当作 Codex 稳定 API；Hook 仍是主要状态来源。远程会话需要在实际执行主机安装 Herald 和 Hook。
+已知会话即使一直写在旧日期目录中也会继续读取，不受最近三天的发现窗口限制。读不到会话记录时不编造进度总结，没有有用内容就不发摘要。已结束、已中断、等待回答的会话不发运行心跳。仍在进行但没有可观察动作的本轮，会在 25 分钟（`HERALD_STALL_SECONDS=1500`）发一次疑似停滞提醒，不声称正在推进。会话格式属于尽力支持，不能当作 Codex 稳定 API；Hook 仍是主要状态来源。远程会话需要在实际执行主机安装 Herald 和 Hook。
+
+问题提醒优先于本轮结束通知：有未回答的异步问题时，不再另发「待审阅」。旧安装的 `PostToolUse` 也可以上报异步问题，无需依赖新增的 `PreToolUse` 匹配规则。通知先将 Markdown 链接转成短标签、去除长网址和代码标记，再截取摘要；完整内容和链接保留在电脑上的任务里。
+
+Bark 推送附带固定 `id`，网络重试沿用同一个标识，减少重复卡片；该功能要求 Bark 1.5.2 / bark-server 2.2.5 或更新版本（[Bark 参数说明](https://github.com/Finb/Bark/blob/master/docs/en-us/params.md#id)）。
 
 升级后重新运行 `./herald install-host`，在 Codex 里 review/trust 更新后的 Hook，再运行 `./herald up` 重建。已有 `.env` 的显式心跳设置继续生效；要半小时节奏，将两个心跳间隔都设为 `1800`。已有 SQLite 数据卷原地迁移，保留通知去重记录。
 

@@ -116,8 +116,8 @@ describe("MonitorScheduler host gap (sleep/wake)", () => {
     const session = store.getSession("macbook:s1")!;
     expect(session.status).toBe("ACTIVE");
     expect(sent.filter((p) => p.title.includes("Possible Stall"))).toHaveLength(0);
-    // Heartbeats are allowed but must respect the adaptive schedule (<= 3/h).
-    expect(sent.filter((p) => p.body.includes("task running"))).toHaveLength(1);
+    // A process is activity evidence, not a meaningful progress update.
+    expect(sent.filter((p) => p.title.includes("Progress update"))).toHaveLength(0);
   });
 
   it("treats a growing Qoder transcript as activity, without a host process", async () => {

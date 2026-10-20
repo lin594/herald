@@ -82,6 +82,7 @@ export class MonitorNotifier {
     }
 
     const result = await this.provider.send({
+      id: fingerprintOf(sessionKey ?? "", notification.kind, options.force ? `${nowMs}:${body}` : notification.dedupKey ?? body),
       title,
       body,
       urgency: level === "timeSensitive" ? "time_sensitive" : "normal",

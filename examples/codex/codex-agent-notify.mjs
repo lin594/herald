@@ -50,7 +50,7 @@ function getToolName(raw) {
 export function shouldForwardCodexEvent(raw, config = {}) {
   const hookEventName = getHookEventName(raw);
   if (hookEventName === "PreToolUse") {
-    return getToolName(raw)?.split(".").pop() === "request_user_input";
+    return ["request_user_input", "request_user_input_async"].includes(getToolName(raw)?.split(".").pop());
   }
   if (hookEventName === "PermissionRequest") {
     return config.notifyPermissionRequests === true;
@@ -59,11 +59,13 @@ export function shouldForwardCodexEvent(raw, config = {}) {
 }
 
 export function summarizeCodexEventForDebug(raw) {
+  const isQuestion = ["request_user_input", "request_user_input_async"].includes(getToolName(raw)?.split(".").pop());
   return {
     hookEventName: getHookEventName(raw) ?? "unknown",
     sessionId: getSessionId(raw),
     toolName: getToolName(raw),
     toolUseId: raw?.tool_use_id,
+    ...(isQuestion ? { questionCount: Array.isArray(raw?.tool_input?.questions) ? raw.tool_input.questions.length : 0 } : {}),
   };
 }
 
@@ -481,9 +483,20 @@ export async function handleCodexEvent(config, raw, deps = {}) {
   }
 
   // Progress is a fact: do not ship command output, patches, or MCP results.
-  const forwardedRaw = getHookEventName(raw) === "PostToolUse"
+  const questionTool = ["request_user_input", "request_user_input_async"].includes(getToolName(raw)?.split(".").pop());
+  const forwardedRaw = ["PreToolUse", "PostToolUse"].includes(getHookEventName(raw))
     ? Object.fromEntries(["hook_event_name", "session_id", "turn_id", "cwd", "transcript_path", "tool_name", "tool_use_id"].filter((key) => raw[key] !== undefined).map((key) => [key, raw[key]]))
     : raw;
+  if (questionTool && isRecord(raw.tool_input) && Array.isArray(raw.tool_input.questions)) {
+    forwardedRaw.tool_input = { questions: raw.tool_input.questions.slice(0, 3).map((question) => {
+      if (!isRecord(question)) return {};
+      return Object.fromEntries(["question", "title", "options"].filter((key) => question[key] !== undefined).map((key) => [key,
+        key === "options" && Array.isArray(question.options)
+          ? question.options.slice(0, 3).map((option) => isRecord(option) ? { label: option.label } : option)
+          : question[key],
+      ]));
+    }) };
+  }
   const sent = await sendCodexEvent(
     config.serverUrl,
     config.token,

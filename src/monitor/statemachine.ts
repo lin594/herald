@@ -2,6 +2,7 @@ import {
   composeTitle,
   digestLine,
   formatDuration,
+  notificationPreview,
   readableProject,
   stateLabel,
 } from "../core/notification-text.js";
@@ -95,8 +96,6 @@ function heartbeatBody(
   const head = digestLine(
     {
       turnMs: session.turnStartedMs == null ? null : nowMs - session.turnStartedMs,
-      runningMs: nowMs - session.startedAtMs,
-      idleMs: nowMs - session.lastActivityMs,
       changedFiles: session.changedFiles,
       insertions: session.insertions,
       deletions: session.deletions,
@@ -108,9 +107,11 @@ function heartbeatBody(
   // clock is still running — so its own last words lead, when it has said any.
   const conclusion = session.lastMessage
     ? [
-        `${language === "zh" ? "最新进展" : "Latest progress"}: ${session.lastMessage}`,
+        `${language === "zh" ? "最新进展：" : "Latest progress: "}${notificationPreview(session.lastMessage)}`,
       ]
     : [];
+  // A ticking clock alone is not a progress update.
+  if (!conclusion.length && !details.length && !session.changedFiles) return "";
   return [...conclusion, ...(head ? [head] : []), ...details].join("\n");
 }
 
@@ -166,7 +167,7 @@ export function evaluateSessionTick(
   // page after upgrading to approve-for-me, or when manual alerts are disabled.
   // Only newly observed progress can establish what that old turn is doing.
   if (session.agentType === "codex" && session.status === "WAITING_USER" &&
-      session.waitingSinceMs != null && session.waitingKind !== "input" && !config.codexApprovalAlerts) {
+      session.waitingSinceMs != null && session.waitingKind !== "input" && session.waitingKind !== "input_async" && !config.codexApprovalAlerts) {
     result.updates.status = "UNKNOWN";
     result.updates.waitingSinceMs = null;
     result.updates.waitingOn = null;
@@ -176,11 +177,12 @@ export function evaluateSessionTick(
     return result;
   }
 
-  if (needsUser || terminal) {
+  const asyncInput = session.waitingKind === "input_async" && session.waitingSinceMs !== null;
+  if (needsUser || terminal || asyncInput) {
     // Waiting/blocked/failed/completed: user-facing state already announced;
     // activity while waiting means the user answered, so return to ACTIVE.
     // FAILED/COMPLETED are only re-opened through event ingestion.
-    if (needsUser && anyActivity && session.agentType !== "codex") {
+    if (needsUser && !asyncInput && anyActivity && session.agentType !== "codex") {
       result.updates.status = "ACTIVE";
       result.updates.lastActivityMs = nowMs;
       result.updates.waitingSinceMs = null;
@@ -195,7 +197,7 @@ export function evaluateSessionTick(
     // and only a wait that outlasts the grace becomes a push — the difference
     // between "needs you" and "asked you".
     if (
-      session.status === "WAITING_USER" &&
+      !terminal && (session.status === "WAITING_USER" || asyncInput) &&
       session.waitingSinceMs != null &&
       ctx.hostAvailable &&
       nowMs - session.waitingSinceMs >= config.waitingGraceSeconds * 1000
@@ -205,15 +207,21 @@ export function evaluateSessionTick(
       // real wait into a stream of reminders.
       result.notifications.push({
         kind: "waiting",
-        title: titleFor(session, session.waitingKind === "approval" ? "approval" : "waiting", config.language),
+        title: titleFor(session, session.waitingKind === "approval" ? "approval" : asyncInput ? "input_async" : "waiting", config.language),
         body: [
-          session.waitingKind === "input"
-            ? session.waitingOn ?? (config.language === "zh" ? "请回到 Codex 回答问题" : "Answer the question in Codex")
+          session.waitingKind === "input" || asyncInput
+            ? [
+                config.language === "zh"
+                  ? "请回到电脑，在 Codex 中选择或填写。"
+                  : "Return to your computer to choose or fill in an answer in Codex.",
+                session.waitingOn,
+              ].filter(Boolean).join("\n")
             : config.language === "zh"
               ? `等你批准${session.waitingOn ? `：${session.waitingOn}` : ""}`
               : `Needs your approval${session.waitingOn ? `: ${session.waitingOn}` : ""}`,
           ...contextLines(session, config.language),
         ].join("\n"),
+        dedupKey: session.waitingToolId ?? `${session.waitingSinceMs}:${session.waitingOn ?? ""}`,
       });
     }
     return result;
@@ -306,7 +314,7 @@ export function evaluateSessionTick(
       : session.status === "STARTED" || session.status === "ACTIVE" || session.status === "QUIET";
 
   if (working && ctx.hostAvailable && ctx.turnInFlight !== false) {
-    const sinceStart = nowMs - session.startedAtMs;
+    const sinceStart = nowMs - (session.turnStartedMs ?? session.startedAtMs);
     const firstDue = session.lastHeartbeatMs == null;
     const interval = firstDue
       ? config.heartbeatFirstSeconds * 1000
@@ -323,10 +331,13 @@ export function evaluateSessionTick(
       firstDue || anyActivity ||
       session.lastActivityMs > (session.lastHeartbeatMs ?? 0);
     if (due && changedSinceBeat) {
-      result.notifications.push({
+      const body = heartbeatBody(session, nowMs, config.language);
+      if (body) result.notifications.push({
         kind: "heartbeat",
         title: titleFor(session, "heartbeat", config.language),
-        body: heartbeatBody(session, nowMs, config.language),
+        body,
+        // Clocks and process activity cannot make an old update news again.
+        dedupKey: JSON.stringify([session.turnStartedMs, notificationPreview(session.lastMessage ?? ""), session.lastStage, session.lastArtifacts, session.changedFiles, session.insertions, session.deletions]),
       });
       result.updates.lastHeartbeatMs = nowMs;
     }

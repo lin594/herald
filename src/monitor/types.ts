@@ -49,7 +49,7 @@ export interface SessionRecord {
   waitingSinceMs: number | null;
   /** What it is waiting on, e.g. the tool name behind a permission request. */
   waitingOn: string | null;
-  waitingKind: "approval" | "input" | null;
+  waitingKind: "approval" | "input" | "input_async" | null;
   waitingToolId: string | null;
   changedFiles: number;
   insertions: number;

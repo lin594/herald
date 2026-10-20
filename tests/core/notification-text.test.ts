@@ -7,6 +7,7 @@ import {
   readableProject,
   shortId,
   stateLabel,
+  notificationPreview,
 } from "../../src/core/notification-text.js";
 
 const MINUTE = 60_000;
@@ -54,8 +55,14 @@ describe("notification text helpers", () => {
   it("localizes state labels and keeps unknown kinds verbatim", () => {
     expect(stateLabel("waiting", "en")).toBe("Need Input");
     expect(stateLabel("waiting", "zh")).toBe("等你输入");
-    expect(stateLabel("heartbeat", "zh")).toBe("还在跑");
+    expect(stateLabel("heartbeat", "zh")).toBe("进展更新");
     expect(stateLabel("something_new", "zh")).toBe("something_new");
+  });
+
+  it("cleans complete links before shortening a phone preview", () => {
+    const text = "审阅链接：[Web #192](https://github.com/e-dialect/hinghwa-dict-web/pull/192)、[移动端 #248](https://github.com/e-dialect/hinghwa-dict-uni-app/pull/248)。**测试通过**，提交 `7aeed963`。";
+    expect(notificationPreview(text)).toBe("审阅链接：Web #192、移动端 #248。测试通过，提交 7aeed963。");
+    expect(notificationPreview(text, 40)).not.toContain("https:");
   });
 });
 

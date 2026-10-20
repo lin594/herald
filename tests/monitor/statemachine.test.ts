@@ -208,7 +208,7 @@ describe("evaluateSessionTick", () => {
     const run = (turnInFlight?: boolean) =>
       evaluateSessionTick(
         {
-          session: session({ status: "ACTIVE", lastHeartbeatMs: null }),
+          session: session({ status: "ACTIVE", lastHeartbeatMs: null, lastMessage: "Tests passed" }),
           ...quiet,
           transcriptActive: true,
           turnInFlight,
@@ -291,20 +291,20 @@ describe("evaluateSessionTick", () => {
 
   it("first heartbeat fires at the initial interval, not before", () => {
     const early = evaluateSessionTick(
-      { session: session(), ...quiet, processActive: true },
+      { session: session({ lastMessage: "Tests passed", turnStartedMs: T0 }), ...quiet, processActive: true },
       config,
       T0 + 899_000,
     );
     expect(early.notifications.filter((n) => n.kind === "heartbeat")).toHaveLength(0);
 
     const due = evaluateSessionTick(
-      { session: session(), ...quiet, processActive: true },
+      { session: session({ lastMessage: "Tests passed", turnStartedMs: T0 }), ...quiet, processActive: true },
       config,
       T0 + 901_000,
     );
     const beat = due.notifications.find((n) => n.kind === "heartbeat");
     expect(resolveSeverity(beat!, config)).toBe("info");
-    expect(beat?.body).toContain("task running 15 min");
+    expect(beat?.body).toContain("this turn 15 min");
     expect(due.updates.lastHeartbeatMs).toBe(T0 + 901_000);
   });
 
@@ -324,7 +324,7 @@ describe("evaluateSessionTick", () => {
 
     const changed = evaluateSessionTick(
       {
-        session: session({ lastHeartbeatMs: lastBeat, lastActivityMs: T0 - 1000_000 }),
+        session: session({ lastHeartbeatMs: lastBeat, lastActivityMs: T0 - 1000_000, lastMessage: "New progress" }),
         ...quiet,
         processActive: true,
       },
@@ -407,39 +407,40 @@ describe("notification readability", () => {
   it("renders the heartbeat digest without duplicated units", () => {
     const zhBeat = evaluateSessionTick(
       {
-        session: session({ lastActivityMs: T0 + 900_000 }),
+        session: session({ lastActivityMs: T0 + 900_000, turnStartedMs: T0, lastMessage: "测试已通过" }),
         ...quiet,
       },
       zh,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(zhBeat?.title).toBe("Codex · MyRepo · 还在跑");
-    expect(zhBeat?.body).toBe("任务已跑 15 分钟");
+    expect(zhBeat?.title).toBe("Codex · MyRepo · 进展更新");
+    expect(zhBeat?.body).toBe("最新进展：测试已通过\n本轮用时 15 分钟");
 
     const enBeat = evaluateSessionTick(
       {
-        session: session({ lastActivityMs: T0 + 900_000 }),
+        session: session({ lastActivityMs: T0 + 900_000, turnStartedMs: T0, lastMessage: "Tests passed" }),
         ...quiet,
       },
       config,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(enBeat?.body).toBe("task running 15 min");
+    expect(enBeat?.body).toBe("Latest progress: Tests passed\nthis turn 15 min");
   });
 
-  it("heartbeat reports the turn in flight separately from the task", () => {
+  it("heartbeat reports the current turn without the lifetime of the conversation", () => {
     const beat = evaluateSessionTick(
       {
         session: session({
           lastActivityMs: T0 + 900_000,
           turnStartedMs: T0 + 300_000,
+          lastMessage: "测试已通过",
         }),
         ...quiet,
       },
-      zh,
+      { ...zh, heartbeatFirstSeconds: 600 },
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(beat?.body).toBe("本轮用时 10 分钟 · 任务已跑 15 分钟");
+    expect(beat?.body).toBe("最新进展：测试已通过\n本轮用时 10 分钟");
   });
 });
 
@@ -529,6 +530,6 @@ describe("heartbeat conclusion", () => {
       zh,
       T0 + 901_000,
     ).notifications.find((n) => n.kind === "heartbeat");
-    expect(beat?.body.split("\n")[0]).toBe("最新进展: 迁移已应用");
+    expect(beat?.body.split("\n")[0]).toBe("最新进展：迁移已应用");
   });
 });

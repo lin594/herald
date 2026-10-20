@@ -3,9 +3,11 @@ import { basename } from "node:path";
 import type { Hono } from "hono";
 import type { IncomingAgentEvent } from "../core/incoming-event.js";
 import { resolveProjectName } from "../formatters/project-title.js";
+import { inputRequestText } from "../core/input-request.js";
 import {
   composeTitle,
   digestLine,
+  notificationPreview,
   readableProject,
   stateLabel,
 } from "../core/notification-text.js";
@@ -145,17 +147,19 @@ export class MonitorHub {
     if (raw.stop_hook_active === true) {
       return { status: 200, body: { ok: true, notified: false, reason: "stop_hook_active" } };
     }
+    if (session.waitingKind === "input_async" && session.waitingSinceMs !== null) {
+      return { status: 200, body: { ok: true, notified: false, reason: "pending_input" } };
+    }
     const duration = session.lastTurnMs;
     if (this.deps.completionMinSeconds <= 0 || duration == null || !session.lastTurnKey || duration < this.deps.completionMinSeconds * 1000) {
       return { status: 200, body: { ok: true, notified: false, reason: "short_or_disabled_completion" } };
     }
-    const text = (str(raw.last_assistant_message) ?? session.lastMessage ?? "")
-      .replace(/\s+/g, " ").trim();
+    const text = notificationPreview(str(raw.last_assistant_message) ?? session.lastMessage ?? "", 160);
     const fallback = this.deps.config.language === "zh" ? "本轮已结束，请查看结果" : "Turn finished; review the result";
     const notified = await this.deps.notifier.notify(key, {
       kind: "completed",
       title: composeTitle(["Codex", readableProject(session.project, this.deps.config.language) ?? readableProject(id, this.deps.config.language), stateLabel("review", this.deps.config.language)]),
-      body: [text.length > 160 ? `${text.slice(0, 159)}…` : text || fallback,
+      body: [text || fallback,
         digestLine({ turnMs: duration }, this.deps.config.language)].filter(Boolean).join("\n"),
       // A second Stop (or a retry after restart) is still the same turn even
       // when its text changes. Short turns never enter the provider pipeline.
@@ -219,6 +223,9 @@ export class MonitorHub {
       fields.waitingKind = null;
       fields.waitingToolId = null;
       fields.lastMessage = null;
+      fields.lastHeartbeatMs = null;
+      fields.lastStage = null;
+      fields.lastArtifacts = null;
       // The prompt itself is deliberately not stored: it is the one piece of
       // text on this path that must never reach a push, and keeping it out of
       // the row makes that structural rather than a redaction race.
@@ -239,18 +246,42 @@ export class MonitorHub {
       if (!sameWait) clearKinds = ["waiting"];
     } else if (hookEvent === "PreToolUse" && incoming.agent === "codex") {
       const name = str(raw.tool_name)?.split(".").pop();
-      if (name !== "request_user_input") return false;
-      const input = isRecord(raw.tool_input) ? raw.tool_input : {};
-      const questions = Array.isArray(input.questions) ? input.questions : [];
-      const question = questions.find((q) => isRecord(q) && str(q.question));
-      fields.status = "WAITING_USER";
-      fields.waitingSinceMs = previous && previous.waitingToolId === str(raw.tool_use_id) && previous.waitingKind === "input"
+      if (name !== "request_user_input" && name !== "request_user_input_async") return false;
+      const kind = name === "request_user_input_async" ? "input_async" : "input";
+      const question = inputRequestText(raw.tool_input, this.deps.config.language);
+      fields.status = kind === "input_async" && previous?.turnStartedMs != null ? "ACTIVE" : "WAITING_USER";
+      fields.waitingSinceMs = previous && previous.waitingToolId === str(raw.tool_use_id) && previous.waitingKind === kind
         ? previous.waitingSinceMs : nowMs;
-      fields.waitingOn = isRecord(question) ? str(question.question)?.slice(0, 200) ?? null : null;
-      fields.waitingKind = "input";
+      fields.waitingOn = question;
+      fields.waitingKind = kind;
       fields.waitingToolId = str(raw.tool_use_id) ?? null;
-      if (previous?.waitingToolId !== fields.waitingToolId || previous?.waitingKind !== "input") clearKinds = ["waiting"];
+      if (previous?.waitingToolId !== fields.waitingToolId || previous?.waitingKind !== kind) clearKinds = ["waiting"];
     } else if (hookEvent === "PostToolUse" && incoming.agent === "codex") {
+      // Async returns {accepted:true} when the panel opens, not when answered.
+      // PostToolUse also recovers questions from already-trusted installations
+      // whose older PreToolUse matcher only covered the synchronous tool.
+      if (str(raw.tool_name)?.split(".").pop() === "request_user_input_async") {
+        if (previous?.status === "COMPLETED" || previous?.status === "FAILED" ||
+            previous?.status === "UNKNOWN" && previous.turnStartedMs === null && previous.lastTurnMs === 0) return false;
+        const question = inputRequestText(raw.tool_input, this.deps.config.language);
+        const same = previous?.waitingKind === "input_async" && previous.waitingToolId === str(raw.tool_use_id);
+        if (!same) {
+          fields.waitingSinceMs = nowMs;
+          fields.waitingOn = question;
+          fields.waitingKind = "input_async";
+          fields.waitingToolId = str(raw.tool_use_id) ?? null;
+          clearKinds = ["waiting"];
+        }
+        fields.lastActivityMs = nowMs;
+        this.deps.store.updateSession(key, fields);
+        if (clearKinds.length) this.deps.store.clearFingerprint(key, clearKinds);
+        return false;
+      }
+      if (previous?.waitingKind === "input_async") {
+        fields.lastActivityMs = nowMs;
+        this.deps.store.updateSession(key, fields);
+        return false;
+      }
       // A parallel tool completing does not answer a different pending question.
       if (previous?.waitingKind === "input" && (!previous.waitingToolId || previous.waitingToolId !== str(raw.tool_use_id))) return false;
       if (previous?.waitingKind === "approval") {
@@ -301,6 +332,14 @@ export class MonitorHub {
       fields.waitingKind = null;
       fields.waitingToolId = null;
       fields.lastMessage = str(raw.last_assistant_message)?.slice(0, 200) ?? null;
+      // The agent finishing its turn does not answer an async question.
+      if (session?.waitingKind === "input_async") {
+        fields.status = "WAITING_USER";
+        fields.waitingSinceMs = session.waitingSinceMs;
+        fields.waitingOn = session.waitingOn;
+        fields.waitingKind = session.waitingKind;
+        fields.waitingToolId = session.waitingToolId;
+      }
     } else if (hookEvent === "Notification") {
       // Qoder/Claude-Code user-facing prompt (permission or idle): the agent
       // is blocked on a human, not on work.

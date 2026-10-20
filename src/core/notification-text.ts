@@ -40,6 +40,32 @@ export function composeTitle(parts: Array<string | null | undefined>): string {
     .join(" · ");
 }
 
+/** Plain text for phone notifications; links remain available in the task. */
+export function plainNotificationText(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/g, "$1")
+    .replace(/https?:\/\/[^\s)\]}>，。；、]+/g, "")
+    .replace(/\[([^\]]+)\]\(\s*\)?/g, "$1")
+    .replace(/([（(])\s*[，,]\s*/g, "$1")
+    .replace(/[（(]\s*[)）]/g, "")
+    .replace(/`+/g, "")
+    .replace(/\*\*|__/g, "")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|[-*]\s+)/gm, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/** Clean before shortening, so a URL cannot consume the entire preview. */
+export function notificationPreview(value: string, maxChars = 180): string {
+  const text = plainNotificationText(value).replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  const prefix = text.slice(0, maxChars - 1);
+  const sentenceEnd = Math.max(...["。", "！", "？", ". ", "! ", "? "].map((mark) => prefix.lastIndexOf(mark)));
+  return sentenceEnd >= maxChars * 0.6
+    ? `${prefix.slice(0, sentenceEnd + 1)}…`
+    : `${prefix.trimEnd()}…`;
+}
+
 export function formatDuration(
   ms: number,
   language: NotificationLanguage,
@@ -55,13 +81,14 @@ export function formatDuration(
 }
 
 const STATE_LABELS: Record<string, readonly [string, string]> = {
-  heartbeat: ["Running", "还在跑"],
+  heartbeat: ["Progress update", "进展更新"],
   possible_stall: ["Possible Stall", "疑似卡住"],
   resumed: ["Resumed", "已恢复活动"],
   host_lost: ["Host Signal Lost", "宿主机失联"],
   started: ["Started", "开始干活"],
   milestone: ["Milestone", "阶段进展"],
   waiting: ["Need Input", "等你输入"],
+  input_async: ["Your answer is needed", "有问题等你回答"],
   approval: ["Approval Pending", "等你批准"],
   review: ["Ready to review", "待审阅"],
   blocked: ["Blocked", "被卡住"],

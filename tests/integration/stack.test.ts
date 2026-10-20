@@ -271,7 +271,7 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
     const h = harness();
     const now = Date.now(); // session starts a few ms after this; margins below absorb it
     const running = () =>
-      h.sent.filter((p) => (p as { title?: string }).title?.includes("Running")).length;
+      h.sent.filter((p) => (p as { title?: string }).title?.includes("Progress update")).length;
     const observeAt = async (ms: number) => {
       await h.app.request("/observations", {
         method: "post",
@@ -292,16 +292,23 @@ describe("full-stack integration (Tests A/B/D/G/I)", () => {
     await h.scheduler.run(now + 905_000); // first heartbeat due at 15 min
     expect(running()).toBe(1);
 
-    // Still working 20 min later: interval (30 min since beat 1) and content
-    // both advanced -> second beat lands.
+    // Process activity and the clock alone do not turn old content into news.
     await observeAt(now + 2_720_000);
     await h.scheduler.run(now + 2_720_000);
+    expect(running()).toBe(1);
+
+    await h.app.request("/events", {
+      method: "post", headers: h.auth,
+      body: JSON.stringify({ agent: "emit", raw: { type: "milestone", message: "Tests passed", session_id: "int-h" } }),
+    });
+    await observeAt(now + 4_530_000);
+    await h.scheduler.run(now + 4_530_000);
     expect(running()).toBe(2);
 
     // Interval not elapsed on the next ticks: activity flows, no heartbeat spam.
     for (let i = 1; i <= 4; i++) {
-      await observeAt(now + 2_720_000 + i * 120_000);
-      await h.scheduler.run(now + 2_720_000 + i * 120_000);
+      await observeAt(now + 4_530_000 + i * 120_000);
+      await h.scheduler.run(now + 4_530_000 + i * 120_000);
     }
     expect(running()).toBe(2);
     expect(h.store.listSessions().find((x) => x.sessionId === "int-h")?.status).toBe("ACTIVE");

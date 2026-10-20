@@ -47,7 +47,7 @@ interruption level. Only the first is worth breaking a Focus for.
 | QUIET ≥ `HERALD_STALL_SECONDS` (25 min) with host available and zero signals | QUIET → UNKNOWN | "Possible Stall" — once per episode, and only while a turn is unaccounted for: a transcript whose last turn closed (`end_turn`, `task_complete`, a user interrupt) or a hook that already reported the `Stop` retires the session **silently** | **notice** with evidence behind it, **info** (and clock-only wording) with none | fingerprint; cleared on resume/re-baseline |
 | Activity returns after QUIET | QUIET → ACTIVE | "Resumed" | **debug** (no push by default) | once per episode; silent when the episode never reached the quiet window, e.g. right after a re-baseline |
 | Long turn (`Stop` ≥ `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, 120 s) | → WAITING_USER | Codex: concise "Ready to review" — **a turn, not the task** | **notice** | durable per-turn fingerprint, including concurrent/retried Stops |
-| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (30 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Running" summary, opening with `最新进展 / Latest progress:` — the agent's **own** words from the current turn's public commentary or cooperative emit — then the turn clock while a turn is in flight, task clock, idle gap, files, ±lines, stage, artifacts | **info** | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
+| Working session, first heartbeat at `HERALD_HEARTBEAT_FIRST_SECONDS` (30 min), then every `HERALD_HEARTBEAT_NORMAL_SECONDS` (30 min), only if content changed and the last turn did not end cleanly | — | "Progress update" summary, opening with `最新进展 / Latest progress:` — the agent's **own** words from the current turn's public commentary or cooperative emit — then the current turn clock, files, ±lines, stage and artifacts; no conversation-lifetime clock | **info** | ≤ `HERALD_HEARTBEAT_MAX_PER_HOUR` (3) per session per rolling hour; skipped when host unreachable |
 | `FAILED` event × N identical | stays FAILED | once | **critical** | fingerprint; a resume/activity edge between failures clears it → a genuine second failure notifies again |
 
 ## Requests versus real waits
@@ -62,11 +62,21 @@ A blocking `request_user_input` enters `WAITING_USER` with kind `input` and its
 tool-call id. It alerts once after the 60-second grace with the question itself.
 A matching `PostToolUse`, a new user turn, Stop or Interrupt clears the wait.
 An unrelated tool finishing, generic process activity or transcript bookkeeping
-cannot answer the question. Nonblocking `request_user_input_async` stays quiet.
+cannot answer the question.
+
+`request_user_input_async` records kind `input_async` without claiming that other
+work has stopped. It has the same grace and critical delivery, explicitly asking
+the user to return to their computer with the displayed question and option
+labels. Its `PostToolUse` only means the panel opened: neither that event,
+unrelated progress nor Stop answers it. A new user input, Interrupt or SessionEnd
+clears it. Pending async questions suppress separate completion and progress
+pushes. PostToolUse includes only the displayed question fields so existing
+trusted hooks can detect these questions without the new PreToolUse matcher.
 
 Routine `milestone` and `resumed` events are `debug`. Half-hour heartbeats are
 `info` / Bark `passive`: latest public progress plus concise timing/context, only
-when the session has observable activity. Interrupted/finished/waiting sessions
+when useful content has changed. Timers and process activity alone do not
+justify a digest; durable content fingerprints exclude elapsed clocks. Interrupted/finished/waiting sessions
 send no running heartbeat; a truly silent in-flight turn uses the stall policy.
 
 
@@ -99,7 +109,9 @@ and the verdict decides.
 
 Rollout lookup resolves a session by every id its filename carries, because a
 resumed Codex thread continues in `rollout-…-<thread>_<turn>.jsonl` while hooks
-keep reporting the thread id. Only the three newest day directories are indexed.
+keep reporting the thread id. The three newest day directories are indexed for discovery; known Codex
+threads are also located in older directories, since resuming a thread does not
+move its transcript into today's directory.
 
 The transcript is only ever *read*: the monitor never writes, moves or deletes
 agent session files.
@@ -124,21 +136,28 @@ title or a duration inline.
   `stateLabel`. An opaque directory or session id is rendered
   `session 1a2b3c4d` / `会话 1a2b3c4d`, never as a bare hash.
 - **Body**: the action first, then one quantitative context line —
-  `this turn 12 min · task running 1h 12m · 44 files changed +1208 −15` /
-  `本轮用时 12 分钟 · 任务已跑 1 小时 12 分 · 44 文件改动 +1208 −15` — plus
+  `this turn 12 min · 44 files changed +1208 −15` /
+  `本轮用时 12 分钟 · 44 文件改动 +1208 −15` — plus
   `Stage:` and `Artifacts:` when the monitor knows them.
 - **Which clock**: `本轮用时` is the turn the push is about — the one in flight
   for a heartbeat, and for a `Stop` push the turn that just closed (the monitor
   stores its duration, so this survives the row clearing its turn start).
-  `任务已跑` is the whole session. A heartbeat between turns shows only the task
-  clock, because there is no turn to report.
-- **Whose words**: a heartbeat opens with `最新结论: …` / `Last said: …` and the
+  Progress notifications omit the conversation-lifetime clock. Each new user turn
+  restarts the first-digest interval; a days-old session must not send a digest
+  two minutes into its new turn.
+- **Whose words**: a heartbeat opens with `最新进展：…` / `Latest progress: …` and the
   agent's own last message, so the periodic "still running" ping reports what the
   run concluded rather than a monitor-written summary of clocks and counters.
 - **Nothing to add, nothing said**: clocks under a minute, zero-change diffstats
   and a clock that merely repeats the task total (`this turn` == `task running`,
   `idle` == since the session began) are dropped, so a prompt two seconds old
   does not push `task running 0 min`.
+- **Plain text**: Markdown links become their labels and long URLs/code markers
+  are removed before shortening. Full content stays in the computer task.
+- **Retry identity**: every Bark send carries a string `id`; transport retries
+  retain it, and monitor retries derive it from the durable notification identity.
+  Bark 1.5.2 / bark-server 2.2.5 or later can replace the matching notification
+  ([Bark parameters](https://github.com/Finb/Bark/blob/master/docs/en-us/params.md#id)).
 - **Language**: `AGENT_NOTIFY_LANGUAGE` (`en` default) drives state labels,
   durations and context lines for both pipelines.
 
@@ -151,8 +170,8 @@ formatted pushes through `src/server/app.ts`. Both apply the same
 1. Secret redaction **before** Bark: `password/token/secret/api_key/Authorization/Bearer/AWS_SECRET/BARK_DEVICE_KEY/private-key headers/sk-…/ghp_…` → `[REDACTED]`.
 2. Bodies that are ≥3 `[REDACTED]` markers are suppressed wholesale.
 3. Body capped at `HERALD_MAX_BODY_CHARS` (default 1200); title at 120.
-4. Prompts, source code, logs and paper text are never sent as bodies — only the
-   short cooperative `emit` messages and state summaries above.
+4. Prompts, source code, logs and paper text are never sent as bodies — only displayed agent questions/options,
+   short cooperative `emit` messages and public assistant/state summaries above.
 5. Provider failure never remembers the fingerprint: the next tick may retry.
 
 Bark `group` is the agent display name — `Codex`, `Qoder`, or the emit

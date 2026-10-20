@@ -1,3 +1,5 @@
+import { plainNotificationText } from "../core/notification-text.js";
+
 const SECRET_PATTERNS: RegExp[] = [
   /password\s*[=:]\s*\S+/gi,
   /token\s*[=:]\s*\S+/gi,
@@ -45,7 +47,7 @@ export function safeBody(value: string, maxChars: number): string {
   const redacted = redactText(value);
   return looksLikeSecretDump(redacted)
     ? SUPPRESSED_BODY
-    : limitBody(redacted, maxChars);
+    : limitBody(plainNotificationText(redacted), maxChars);
 }
 
 export function safeTitle(value: string): string {
