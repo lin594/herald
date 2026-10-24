@@ -45,6 +45,7 @@ renders the same pushes in Chinese; an unnamed workspace is shown as
 - **Silence is the default.** Notifications are edge-triggered and deduped by
   content fingerprint, and the fingerprint table lives in SQLite, so a restart
   replays nothing.
+- **Automatic recovery.** The container restarts with Docker, and the macOS Host Bridge starts at login.
 - **Tiers, not volume.** Every push is graded like a log line (`debug` < `info`
   < `notice` < `critical`), and only a state where the agent has stopped and
   needs a human is allowed to interrupt. `HERALD_MIN_SEVERITY` drops everything

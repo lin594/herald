@@ -815,6 +815,12 @@ docker compose -f deploy/docker/docker-compose.yml up --build
 
 The container has a healthcheck (probes `/health` every 30 seconds); `docker compose ps` shows the health status.
 
+### Resume automatically after a reboot
+
+Compose uses `restart: unless-stopped`: the container recovers after an exit or a Docker engine restart. A manually stopped container remains stopped until you run `./herald up` again.
+
+On macOS, the Docker engine must also start. With OrbStack, run `orb config set app.start_at_login true` to enable login startup. The Host Bridge installed by `./herald install-host` runs at login through a LaunchAgent with `KeepAlive`. After rebooting and logging into macOS, OrbStack, the Herald container and the Host Bridge can resume automatically without manually starting the service.
+
 After the service starts, the host reaches it at:
 
 ```text

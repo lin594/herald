@@ -817,6 +817,12 @@ docker compose -f deploy/docker/docker-compose.yml up --build
 
 容器带 healthcheck（每 30 秒探一次 `/health`），`docker compose ps` 能看到健康状态。
 
+### 开机后自动恢复运行
+
+Compose 使用 `restart: unless-stopped`：容器退出或 Docker 引擎重启后会自动恢复；手动停止的容器保持停止，需用 `./herald up` 再次启动。
+
+macOS 上还需要启动 Docker 引擎。使用 OrbStack 时，执行 `orb config set app.start_at_login true` 开启登录启动。运行 `./herald install-host` 安装的 Host Bridge 由 LaunchAgent 在登录时启动，并通过 `KeepAlive` 保持运行。重启电脑并登录 macOS 后，OrbStack、Herald 容器和 Host Bridge 即可自动恢复，无需再次手动启动服务。
+
 服务启动后，宿主机访问：
 
 ```text

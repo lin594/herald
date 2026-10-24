@@ -1,6 +1,7 @@
 name: herald
 services:
   agent-notify:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
