@@ -19,5 +19,24 @@ case "${1:-}" in
   logs)  exec docker compose "${COMPOSE_ARGS[@]}" logs -f agent-notify ;;
   install-host)   shift; exec node host/install-host.mjs "$@" ;;
   uninstall-host) shift; exec node host/uninstall-host.mjs "$@" ;;
+  doctor)
+    if ! command -v docker >/dev/null 2>&1; then
+      printf '%s\n' 'FAIL Docker CLI not found. Install Docker and ensure docker is in PATH, then run ./herald doctor again.' >&2
+      exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+      printf '%s\n' 'FAIL Cannot access the Docker daemon. Ensure Docker is running and your account can access its socket, then run ./herald doctor again.' >&2
+      exit 1
+    fi
+    if ! RUNNING_CONTAINERS="$(docker compose "${COMPOSE_ARGS[@]}" ps --status running -q agent-notify 2>/dev/null)"; then
+      printf '%s\n' 'FAIL Unable to inspect the agent-notify service with Docker Compose. Check .env and Compose configuration, then run ./herald doctor again.' >&2
+      exit 1
+    fi
+    if [ -z "$RUNNING_CONTAINERS" ]; then
+      printf '%s\n' 'FAIL The agent-notify service is not running. Start it with ./herald up, then run ./herald doctor again.' >&2
+      exit 1
+    fi
+    exec docker compose "${COMPOSE_ARGS[@]}" exec -T agent-notify node dist/cli/index.js "$@"
+    ;;
   *)     exec docker compose "${COMPOSE_ARGS[@]}" exec -T agent-notify node dist/cli/index.js "$@" ;;
 esac

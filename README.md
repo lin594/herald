@@ -105,8 +105,8 @@ The adapter is fail-safe: server errors never block the agent. Long-task complet
 3. `./herald install-host` — registers the Codex and Qoder hooks and loads the
    macOS Host Bridge LaunchAgent. Trust the hooks once in the Codex TUI, and
    restart Qoder once (its hook config has no hot reload).
-4. `./herald test` then `./herald doctor` — one forced push and a full health
-   check of provider, hooks, bridge, mounts and database.
+4. `./herald test` then `./herald doctor` — send a test event, then check
+   configuration, API reachability and Host Bridge heartbeat freshness.
 
 Agents can also report cooperatively with one call —
 `./herald emit waiting "…"` (or the equivalent `{"agent":"emit", …}` POST) —
