@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { parseConfig } from "../config/env.js";
 import { BarkProvider } from "../providers/bark.js";
 import { NtfyProvider } from "../providers/ntfy.js";
+import { ServerChan3Provider } from "../providers/serverchan3.js";
 import type { NotificationProvider } from "../providers/types.js";
 import { createApp } from "./app.js";
 import { parseMonitorConfig } from "../monitor/config.js";
@@ -16,9 +17,11 @@ import { CooldownPolicy } from "./cooldown-policy.js";
 
 const config = parseConfig(process.env);
 const provider: NotificationProvider =
-  config.provider === "ntfy"
-    ? new NtfyProvider(config.ntfyEndpoint, config.ntfyToken)
-    : new BarkProvider(config.barkEndpoint);
+  config.provider === "serverchan3"
+    ? new ServerChan3Provider(config.serverchan3SendKey)
+    : config.provider === "ntfy"
+      ? new NtfyProvider(config.ntfyEndpoint, config.ntfyToken)
+      : new BarkProvider(config.barkEndpoint);
 
 const monitorConfig = parseMonitorConfig(process.env);
 let db: DatabaseSync | undefined;

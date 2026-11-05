@@ -46,6 +46,14 @@ function fixture(over: Partial<MonitorConfig> = {}) {
 }
 
 describe("MonitorNotifier", () => {
+  it("redacts ServerChan³ keys from titles and bodies before publishing", async () => {
+    const { notifier, sent } = fixture();
+    const key = "sctp123tfixture_secret";
+    await notifier.notify("macbook:sc3", { kind: "milestone", title: `key ${key}`, body: `SERVERCHAN3_SENDKEY=${key}` }, T0);
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent)).not.toContain(key);
+    expect(sent[0].body).toContain("[REDACTED]");
+  });
   it("redacts secrets before sending", async () => {
     const { notifier, sent } = fixture();
     await notifier.notify(

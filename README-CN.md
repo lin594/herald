@@ -57,7 +57,7 @@ Codex · herald · 疑似卡住
 上手：`cp .env.example .env` 填好 `BARK_ENDPOINT` 与 `AGENT_NOTIFY_TOKENS` → `./herald up`
 → `./herald install-host` → `./herald test`。细节见 [docs/agent-integration.md](docs/agent-integration.md)。
 
-AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务端格式化成简短、行动导向的通知，记录安全的事件摘要，并通过 Bark 或 ntfy 推送到你的手机或桌面。
+AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务端格式化成简短、行动导向的通知，记录安全的事件摘要，并通过 Bark、ntfy 或可选的 Server酱³ 推送到你的手机或桌面。
 
 ## 它能做什么
 
@@ -67,7 +67,7 @@ AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务�
 - 让短任务保持安静，只在会话运行时间足够长时提醒你。
 - 用会话级冷却压住高频「通知-处理-继续」循环，减少权限/问题提醒刷屏。
 - 提供按工具独立的 `/agent-notify` 开关，支持当前会话、定时和持久静音。
-- 通过 Bark（iPhone / Apple Watch）或 ntfy（跨平台）推送。
+- 通过 Bark（iPhone / Apple Watch）、ntfy（跨平台）或可选 Server酱³（Android，待真机验证送达）推送。
 
 ## 支持的 agent
 
@@ -80,12 +80,12 @@ AgentNotify 接收 OpenCode、Claude Code 和 Codex 的 hook 事件，在服务�
 
 Adapter 是 fail-safe 的：服务端错误不会阻塞 agent。长任务完成状态由 AgentNotify 服务端跟踪，因此 adapter 保持无状态。
 
-## 通知方式
+## Bark/ntfy 客户端覆盖
 
 | 平台 / 设备 | Bark | ntfy |
 | --- | --- | --- |
 | iPhone / Apple Watch | ✅ 推荐 | ✅ |
-| Android | ❌ | ✅ 推荐 |
+| Android | ❌ | ✅ |
 | macOS 桌面 | ❌ | ✅ |
 | Windows 桌面 | ❌ | ✅ |
 | Linux 桌面 | ❌ | ✅ |

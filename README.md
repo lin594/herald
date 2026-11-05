@@ -58,11 +58,11 @@ renders the same pushes in Chinese; an unnamed workspace is shown as
   task done when the agent says so.
 - **Local by construction.** Containerized, loopback-only API, explicit
   read-only mounts (never `~` wholesale), secrets redacted before they reach
-  the push provider, no account and no telemetry.
+  the push provider, no Herald account and no telemetry.
 
 Codex monitor notifications share the durable severity and dedup policy. The base pipeline remains available with Herald disabled: hook events in,
 short action-focused notifications out, delivered by Bark (iPhone / Apple Watch)
-or ntfy (everything else).
+or ntfy (cross-platform), with opt-in ServerChan³ for Android.
 
 ## What it does
 
@@ -73,7 +73,7 @@ or ntfy (everything else).
 - Keeps short tasks quiet and only pings when a session has run long enough to matter.
 - Tames rapid notify-handle-continue loops with a session-scoped cooldown for permission/question alerts.
 - Provides per-tool `/agent-notify` switches for session, timed, and persistent muting.
-- Pushes through Bark (iPhone / Apple Watch) or ntfy (cross-platform).
+- Pushes through Bark (iPhone / Apple Watch), ntfy (cross-platform), or opt-in ServerChan³ (Android; device delivery needs verification).
 
 ## Supported agents
 
@@ -86,12 +86,12 @@ or ntfy (everything else).
 
 The adapter is fail-safe: server errors never block the agent. Long-task completion is tracked in the server, so adapters stay stateless.
 
-## Notification providers
+## Bark/ntfy client coverage
 
 | Platform / Device | Bark | ntfy |
 | --- | --- | --- |
 | iPhone / Apple Watch | ✅ recommended | ✅ |
-| Android | ❌ | ✅ recommended |
+| Android | ❌ | ✅ |
 | macOS desktop | ❌ | ✅ |
 | Windows desktop | ❌ | ✅ |
 | Linux desktop | ❌ | ✅ |
@@ -99,7 +99,7 @@ The adapter is fail-safe: server errors never block the agent. Long-task complet
 
 ## Quickstart
 
-1. `cp .env.example .env` and fill in `BARK_ENDPOINT` (or `NTFY_ENDPOINT`) plus
+1. `cp .env.example .env` and fill in the selected provider credentials plus
    `AGENT_NOTIFY_TOKENS`. Keep it `chmod 600`; it is gitignored.
 2. `./herald up` — builds and starts the container stack (API on `127.0.0.1:8787`).
 3. `./herald install-host` — registers the Codex and Qoder hooks and loads the

@@ -7,6 +7,7 @@ import { loadDotenv, parseConfig } from "../config/env.js";
 import { parseMonitorConfig } from "../monitor/config.js";
 import { passesSeverityGate, resolveSeverity, SEVERITY_DELIVERY } from "../monitor/severity.js";
 import type { AppConfig, NamedToken } from "../config/env.js";
+import { serverChan3Uid, SERVERCHAN3_SENDKEY_ERROR } from "../config/serverchan3.js";
 
 const EMIT_TYPES = ["started", "milestone", "waiting", "blocked", "failed", "completed"];
 const DOCTOR_REQUEST_TIMEOUT_MS = 5_000;
@@ -94,7 +95,13 @@ export function validateDoctorConfig(env: NodeJS.ProcessEnv): {
   const messages: string[] = [];
   const provider = env.AGENT_NOTIFY_PROVIDER || "bark";
   if (!env.AGENT_NOTIFY_TOKENS) messages.push("Missing AGENT_NOTIFY_TOKENS");
-  if (provider === "ntfy") {
+  if (provider === "serverchan3") {
+    try {
+      serverChan3Uid(env.SERVERCHAN3_SENDKEY ?? "");
+    } catch {
+      messages.push(SERVERCHAN3_SENDKEY_ERROR);
+    }
+  } else if (provider === "ntfy") {
     if (!env.NTFY_ENDPOINT) messages.push("Missing NTFY_ENDPOINT");
   } else {
     if (!env.BARK_ENDPOINT) messages.push("Missing BARK_ENDPOINT");
@@ -190,11 +197,12 @@ export async function doctor(): Promise<void> {
   }
 
   const config = parseConfig(process.env);
-  const endpoint =
-    config.provider === "ntfy" ? config.ntfyEndpoint : config.barkEndpoint;
-  console.log(
-    `OK provider=${config.provider} endpoint=${maskSecret(endpoint)}`,
-  );
+  if (config.provider === "serverchan3") {
+    console.log("OK provider=serverchan3 (SendKey configured)");
+  } else {
+    const endpoint = config.provider === "ntfy" ? config.ntfyEndpoint : config.barkEndpoint;
+    console.log(`OK provider=${config.provider} endpoint=${maskSecret(endpoint)}`);
+  }
   await mkdir(dirname(config.logPath), { recursive: true });
   await access(dirname(config.logPath), constants.W_OK);
   console.log(`OK log directory writable: ${dirname(config.logPath)}`);

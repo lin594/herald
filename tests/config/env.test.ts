@@ -5,6 +5,46 @@ import { describe, expect, it } from "vitest";
 import { parseConfig, parseTokenList } from "../../src/config/env.js";
 
 describe("config parsing", () => {
+  it("selects ServerChan³ explicitly without requiring other provider credentials", () => {
+    const config = parseConfig({
+      AGENT_NOTIFY_TOKENS: "fixture:dummy",
+      AGENT_NOTIFY_PROVIDER: "serverchan3",
+      SERVERCHAN3_SENDKEY: "sctp123tfixture_secret",
+      BARK_ENDPOINT: "",
+      NTFY_ENDPOINT: "",
+    });
+    expect(config.provider).toBe("serverchan3");
+    expect(config.serverchan3SendKey).toBe("sctp123tfixture_secret");
+    expect(config.barkEndpoint).toBeUndefined();
+    expect(config.ntfyEndpoint).toBeUndefined();
+  });
+
+  it("keeps Bark as default even when an inactive SendKey is present", () => {
+    const config = parseConfig({
+      AGENT_NOTIFY_TOKENS: "fixture:dummy",
+      BARK_ENDPOINT: "https://example.invalid/device",
+      SERVERCHAN3_SENDKEY: "invalid-inactive-fixture",
+    });
+    expect(config.provider).toBe("bark");
+    expect(config.serverchan3SendKey).toBeUndefined();
+  });
+
+  it.each([undefined, "", "legacy-fixture-secret", "sctpxtfixture", "sctp123tfixture\n"])("rejects missing or invalid selected SendKey without exposing it (case %#)", (key) => {
+    let message = "";
+    try {
+      parseConfig({ AGENT_NOTIFY_TOKENS: "fixture:dummy", AGENT_NOTIFY_PROVIDER: "serverchan3", SERVERCHAN3_SENDKEY: key });
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toContain("SERVERCHAN3_SENDKEY must be a ServerChan³ SendKey");
+    if (key) expect(message).not.toContain(key);
+  });
+
+  it("documents an empty SendKey default and passes it through Compose", () => {
+    expect(readFileSync(".env.example", "utf8")).toContain("SERVERCHAN3_SENDKEY=\n");
+    expect(readFileSync("deploy/docker/docker-compose.yml", "utf8")).toContain('SERVERCHAN3_SENDKEY: "${SERVERCHAN3_SENDKEY:-}"');
+  });
+
   it("parses named bearer tokens", () => {
     expect(parseTokenList("macbook:abc,ubuntu:def")).toEqual([
       { name: "macbook", value: "abc" },

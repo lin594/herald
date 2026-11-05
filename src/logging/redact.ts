@@ -1,6 +1,9 @@
-const SENSITIVE_KEY_PATTERN = /token|authorization|api_key|apikey|password|secret/i;
+const SENSITIVE_KEY_PATTERN = /token|authorization|api_key|apikey|password|secret|send[_-]?key/i;
 
 export function redactValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\bsctp\d+t[^\s"'<>]+/g, "[REDACTED]");
+  }
   if (Array.isArray(value)) {
     return value.map((item) => redactValue(item));
   }

@@ -14,6 +14,14 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 describe("doctor helpers", () => {
+  it("validates the selected ServerChan³ key without requiring Bark", () => {
+    expect(validateDoctorConfig({ AGENT_NOTIFY_TOKENS: "fixture:dummy", AGENT_NOTIFY_PROVIDER: "serverchan3", SERVERCHAN3_SENDKEY: "sctp123tfixture_secret" })).toEqual({ ok: true, messages: [] });
+    const result = validateDoctorConfig({ AGENT_NOTIFY_TOKENS: "fixture:dummy", AGENT_NOTIFY_PROVIDER: "serverchan3", SERVERCHAN3_SENDKEY: "invalid-fixture-secret" });
+    expect(result.ok).toBe(false);
+    expect(result.messages.join(" ")).toContain("SERVERCHAN3_SENDKEY");
+    expect(result.messages.join(" ")).not.toContain("invalid-fixture-secret");
+    expect(result.messages.join(" ")).not.toContain("BARK_ENDPOINT");
+  });
   it("masks secrets", () => {
     expect(maskSecret("https://api.day.app/abcdef123456")).toBe("https://api.day.app/[REDACTED]");
   });
@@ -107,6 +115,19 @@ describe("doctor diagnostics", () => {
       "http://127.0.0.1:8787/status",
     ]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never prints the ServerChan³ key or key-bearing endpoint during diagnosis", async () => {
+    process.env.AGENT_NOTIFY_PROVIDER = "serverchan3";
+    process.env.SERVERCHAN3_SENDKEY = "sctp123tfixture_secret";
+    delete process.env.BARK_ENDPOINT;
+    respond([host()]);
+    await doctor();
+    expect(text()).toContain("OK provider=serverchan3 (SendKey configured)");
+    expect(text()).not.toContain("sctp123tfixture_secret");
+    expect(text()).not.toContain("push.ft07.com");
+    expect(process.exitCode).toBeUndefined();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["http://127.0.0.1:8787/health", "http://127.0.0.1:8787/status"]);
   });
 
   it("warns when no host bridge has reported", async () => {
