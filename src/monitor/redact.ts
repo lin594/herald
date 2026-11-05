@@ -1,6 +1,8 @@
 import { plainNotificationText } from "../core/notification-text.js";
 
 const SECRET_PATTERNS: RegExp[] = [
+  /(?:SERVERCHAN3_)?send[_-]?key\s*[=:]\s*\S+/gi,
+  /\bsctp\d+t[^\s"'<>]+/g,
   /password\s*[=:]\s*\S+/gi,
   /token\s*[=:]\s*\S+/gi,
   /secret\s*[=:]\s*\S+/gi,

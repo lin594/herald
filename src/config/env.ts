@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { serverChan3Uid, SERVERCHAN3_SENDKEY_ERROR } from "./serverchan3.js";
 import {
   defaultNotificationLanguage,
   notificationLanguages,
@@ -57,12 +58,21 @@ export type AppConfig =
       barkEndpoint: string;
       ntfyEndpoint?: undefined;
       ntfyToken?: undefined;
+      serverchan3SendKey?: undefined;
     })
   | (BaseAppConfig & {
       provider: "ntfy";
       ntfyEndpoint: string;
       ntfyToken?: string;
       barkEndpoint?: undefined;
+      serverchan3SendKey?: undefined;
+    })
+  | (BaseAppConfig & {
+      provider: "serverchan3";
+      serverchan3SendKey: string;
+      barkEndpoint?: undefined;
+      ntfyEndpoint?: undefined;
+      ntfyToken?: undefined;
     });
 
 // Treat empty strings as undefined so optional fields like endpoint URLs that
@@ -103,13 +113,14 @@ const envSchema = z
     AGENT_NOTIFY_HOST: z.string().default("0.0.0.0"),
     AGENT_NOTIFY_PORT: z.coerce.number().int().positive().default(8787),
     AGENT_NOTIFY_TOKENS: z.string().min(1),
-    AGENT_NOTIFY_PROVIDER: z.enum(["bark", "ntfy"]).default("bark"),
+    AGENT_NOTIFY_PROVIDER: z.enum(["bark", "ntfy", "serverchan3"]).default("bark"),
     AGENT_NOTIFY_LANGUAGE: z
       .enum(notificationLanguages)
       .default(defaultNotificationLanguage),
     BARK_ENDPOINT: emptyStringToUndefined(z.string().url().optional()),
     NTFY_ENDPOINT: emptyStringToUndefined(z.string().url().optional()),
     NTFY_TOKEN: emptyStringToUndefined(z.string().optional()),
+    SERVERCHAN3_SENDKEY: emptyStringToUndefined(z.string().optional()),
     AGENT_NOTIFY_LOG_PATH: z.string().default("./data/events.jsonl"),
     AGENT_NOTIFY_LOG_RAW: z
       .enum(["true", "false", "1", "0"])
@@ -146,6 +157,17 @@ const envSchema = z
         message: "NTFY_ENDPOINT is required when AGENT_NOTIFY_PROVIDER=ntfy",
       });
     }
+    if (value.AGENT_NOTIFY_PROVIDER === "serverchan3") {
+      try {
+        serverChan3Uid(value.SERVERCHAN3_SENDKEY ?? "");
+      } catch {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SERVERCHAN3_SENDKEY"],
+          message: SERVERCHAN3_SENDKEY_ERROR,
+        });
+      }
+    }
   });
 
 export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -175,6 +197,14 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       provider: "ntfy",
       ntfyEndpoint: parsed.NTFY_ENDPOINT!,
       ntfyToken: parsed.NTFY_TOKEN?.trim() || undefined,
+    };
+  }
+
+  if (parsed.AGENT_NOTIFY_PROVIDER === "serverchan3") {
+    return {
+      ...baseConfig,
+      provider: "serverchan3",
+      serverchan3SendKey: parsed.SERVERCHAN3_SENDKEY!,
     };
   }
 

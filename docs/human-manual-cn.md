@@ -1,6 +1,6 @@
 # AgentNotify 人类使用手册
 
-这份手册写给想给 OpenCode、Claude Code、Codex 接上手机或桌面通知的人。照着配置一遍，就能把关键事件转发到 AgentNotify，再由 Bark 或 ntfy 推到你的设备。
+这份手册写给想给 OpenCode、Claude Code、Codex 接上手机或桌面通知的人。照着配置一遍，就能把关键事件转发到 AgentNotify，再由 Bark、ntfy 或可选 Server酱³ 推到你的设备。
 
 ## 这个项目是做什么的
 
@@ -9,7 +9,7 @@ AgentNotify 是一个本地通知中转站：
 1. OpenCode、Claude Code 或 Codex 运行到需要你处理的事件，例如请求命令权限、问题选择、长任务完成或会话报错。
 2. 本地 adapter 把事件发到本机的 AgentNotify 服务。
 3. AgentNotify 把事件格式化成简短通知。
-4. AgentNotify 调用配置的 provider（Bark 或 ntfy），把通知推到你的手机或桌面设备。
+4. AgentNotify 调用配置的 provider（Bark、ntfy 或 Server酱³），把通知推到你的手机或桌面设备。
 
 当前版本主要支持这些 OpenCode 事件：
 
@@ -79,9 +79,9 @@ malformed 或 unreadable 的状态文件会默认把通知保持在开启状态�
 
 通知标题会在能够识别项目目录时自动加项目名前缀，例如 `agent-notify 需要批准`。Claude Code 和 Codex 使用 hook payload 里的 `cwd`；OpenCode 的插件会把当前项目目录补为转发事件的 `raw.cwd`，用于生成该前缀。无法识别目录时，标题保持原样。通知标题里的项目名前缀按会话首次出现的 cwd 固定；会话过程中 cwd 变化（例如 Claude Code 执行子任务时进入子目录）不会改变前缀。
 
-## 通知方式：Bark 与 ntfy
+## 通知方式：Bark、ntfy 与 Server酱³
 
-AgentNotify 把事件格式化后，通过 provider 推到你的设备。当前支持两种 provider，用 `.env` 里的 `AGENT_NOTIFY_PROVIDER` 选择，默认 `bark`。
+AgentNotify 把事件格式化后，通过 `.env` 中 `AGENT_NOTIFY_PROVIDER` 选择的一个 provider 推到设备。默认仍为 `bark`；`ntfy` 和 `serverchan3` 均需显式选择。
 
 ### Bark
 
@@ -91,7 +91,7 @@ AgentNotify 把事件格式化后，通过 provider 推到你的设备。当前�
 - 也可以自建 Bark 服务，填自建 endpoint。
 - AgentNotify 会把 `time_sensitive` 的通知标记为 Bark 的 `timeSensitive` 级别，避免被专注模式静音；并带上分组、图标和声音字段。
 
-Bark 只能推到苹果设备。如果你用 Android、Windows、Linux 或想在桌面收通知，选下面的 ntfy。
+Bark 只能推到苹果设备。Android 用户可以选择下面的 Server酱³；ntfy 也支持 Android、桌面和浏览器客户端。
 
 ### ntfy
 
@@ -102,12 +102,22 @@ Bark 只能推到苹果设备。如果你用 Android、Windows、Linux 或想在
 - topic 需要认证时，设置 `NTFY_TOKEN`（Bearer token）；公开 topic 可留空。
 - AgentNotify 会把 `time_sensitive` 的通知用 ntfy 的最高优先级（`priority=4`）发送。
 
-### 多平台适配一览
+### Server酱³（可选 Android 通道）
+
+[Server酱³](https://doc.sc3.ft07.com/en/serverchan3/server/api) 是用于评估 Android 到达效果的可选通道，包括 vivo 设备。启用前先配置其客户端。实际到达率、后台行为和通知权限需要在自己的设备上验证；本接入不承诺送达，也不绕过系统限制。
+
+- 设置 `AGENT_NOTIFY_PROVIDER=serverchan3`，并在私有 `.env` 中填写 `SERVERCHAN3_SENDKEY`。密钥默认为空，仅选择该 provider 时必填；只填写密钥不会自动启用通道。
+- 使用符合官方 `sctp{uid}t...` 格式的 Server酱³ SendKey，不支持旧版 Server酱 Turbo 密钥。UID 从密钥中提取，无需配置 endpoint。
+- Herald 使用 JSON POST：`title` 为标题，Markdown `desp` 为正文（正文为空时使用标题），可选 `tags` 来自通知分组，分组中的竖线用于分隔标签。Bark 的级别、声音、图标和点击字段不映射到该通道。
+- 每次请求有五秒期限，覆盖响应头与 JSON 正文。HTTP 错误、非 JSON、无效响应和非零业务码均安全返回失败。按[官方 SDK 约定](https://github.com/easychen/serverchan-sdk)，仅数值 `code=0` 表示 API 接受，不代表设备已收件。
+- 不自动重试，也不通过其他 provider 补发，因为超时请求可能已被接受。错误和 doctor 输出省略 SendKey、请求 URL 与原始响应。不要将 SendKey 放进日志、截图、issue 或共享文档。
+
+### Bark/ntfy 多平台适配一览
 
 | 平台 / 设备 | Bark | ntfy |
 | --- | --- | --- |
 | iPhone / Apple Watch | ✅ 推荐 | ✅ |
-| Android | ❌ | ✅ 推荐 |
+| Android | ❌ | ✅ |
 | macOS 桌面 | ❌ | ✅ |
 | Windows 桌面 | ❌ | ✅ |
 | Linux 桌面 | ❌ | ✅ |
@@ -116,18 +126,20 @@ Bark 只能推到苹果设备。如果你用 Android、Windows、Linux 或想在
 选型建议：
 
 - 只用苹果设备 → Bark，配置最简单。
+- 评估 Android/vivo 到达效果 → 显式选择 Server酱³，再做真机验证。
 - 跨平台、跨设备，或团队多人接收同一批通知 → ntfy，所有设备订阅同一 topic 即可。
 
-两个 provider 都通过 `.env` 配置，详见第二步。一次只能启用一个 `AGENT_NOTIFY_PROVIDER`。
+所有 provider 都通过 `.env` 配置，详见第二步。一次只能启用一个 `AGENT_NOTIFY_PROVIDER`。
 
 ## 你需要准备什么
 
 - Node.js 20 或更高版本
 - pnpm
 - OpenCode / Claude Code / Codex（至少一个）
-- 通知 provider 二选一：
+- 选择一个通知 provider：
   - Bark：iPhone 上安装 Bark，拿到 endpoint（形如 `https://api.day.app/你的设备Key`）
   - ntfy：在手机或桌面 ntfy 客户端订阅一个专属自己的 topic，拿到 topic URL
+  - Server酱³：配置 Android 客户端并获取 SendKey，保持密钥私密
 
 ## 第一步：安装依赖
 
@@ -160,16 +172,18 @@ AGENT_NOTIFY_COOLDOWN_SECONDS=60
 BARK_ENDPOINT=https://api.day.app/example-device-key
 NTFY_ENDPOINT=
 NTFY_TOKEN=
+SERVERCHAN3_SENDKEY=
 AGENT_NOTIFY_LOG_PATH=./data/events.jsonl
 AGENT_NOTIFY_LOG_RAW=false
 ```
 
 你需要改的是：
 
-- `AGENT_NOTIFY_PROVIDER`：通知 provider，默认 `bark`，也可以设为 `ntfy`。
+- `AGENT_NOTIFY_PROVIDER`：通知 provider，默认 `bark`，也可以设为 `ntfy` 或 `serverchan3`。
 - `BARK_ENDPOINT`：使用 Bark 时换成你的 Bark endpoint。
 - `NTFY_ENDPOINT`：使用 ntfy 时填写完整 topic URL，例如 `https://ntfy.sh/agent_notify_long_random_text`
 - `NTFY_TOKEN`：ntfy 受保护 topic 的可选 Bearer token；公开 topic 可留空。
+- `SERVERCHAN3_SENDKEY`：仅选择 `serverchan3` 时必填，否则留空。直接写入私有 `.env` 文件，不要放进对话或共享命令输出。
 - `AGENT_NOTIFY_LANGUAGE`：通知文案语言，支持 `en` 和 `zh`，默认 `en`。
 - `AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS`：Claude Code 完成通知阈值，单位秒，默认 `120`。任务运行超过该秒数后，结束时推送完成通知；设为 `0` 关闭 Claude Code 完成通知。
 - `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`：Codex 完成通知阈值，单位秒，默认 `120`。任务运行超过该秒数后，结束时推送完成通知；设为 `0` 关闭 Codex 完成通知。
@@ -214,7 +228,7 @@ pnpm agent-notify doctor
 
 正常时你会看到几行 `OK`，包括：
 
-- 当前 provider（`bark` 或 `ntfy`）的 endpoint 配置存在
+- 已配置所选 provider 的凭据（`BARK_ENDPOINT`、`NTFY_ENDPOINT` 或 `SERVERCHAN3_SENDKEY`）
 - 日志目录可写
 - `/health` 能访问
 
@@ -279,11 +293,11 @@ cp examples/opencode/agent-notify.ts ~/.config/opencode/plugins/agent-notify.ts
 
 ### 1. 确认 AgentNotify 服务端配置
 
-先确认 `.env` 里有服务端 token 和 Bark endpoint/Ntfy endpoint：
+先确认 `.env` 里有服务端 token 和 所选 provider 的凭据：
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark 或者 ntfy
+AGENT_NOTIFY_PROVIDER=bark # 或 ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/你的设备Key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 ```
@@ -358,11 +372,11 @@ AGENT_NOTIFY_OPENCODE_COMPLETION_MIN_SECONDS=5
 
 ### 1. 确认 AgentNotify 服务端配置
 
-先确认 `.env` 里有服务端 token 和 Bark endpoint/Ntfy endpoint：
+先确认 `.env` 里有服务端 token 和 所选 provider 的凭据：
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark 或者 ntfy
+AGENT_NOTIFY_PROVIDER=bark # 或 ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/你的设备Key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS=120
@@ -527,11 +541,11 @@ Codex 和 Claude 一样使用 command hooks 调用插件
 
 ### 1. 确认 AgentNotify 服务端配置
 
-先确认 `.env` 里有服务端 token 和 Bark endpoint/Ntfy endpoint：
+先确认 `.env` 里有服务端 token 和 所选 provider 的凭据：
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark 或者 ntfy
+AGENT_NOTIFY_PROVIDER=bark # 或 ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/你的设备Key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS=120
@@ -799,10 +813,11 @@ docker compose -f deploy/docker/docker-compose.yml up --build
 | 环境变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `AGENT_NOTIFY_TOKENS` | ✅ | — | 服务端 token，格式 `名称:token`，多个用逗号分隔 |
-| `AGENT_NOTIFY_PROVIDER` | 否 | `bark` | provider，`bark` 或 `ntfy` |
+| `AGENT_NOTIFY_PROVIDER` | 否 | `bark` | provider，`bark`、`ntfy` 或 `serverchan3` |
 | `BARK_ENDPOINT` | Bark 时必填 | — | Bark endpoint，`bark` 时必填 |
 | `NTFY_ENDPOINT` | ntfy 时必填 | 空 | ntfy topic URL，`ntfy` 时必填 |
 | `NTFY_TOKEN` | 否 | 空 | ntfy 受保护 topic 的 Bearer token |
+| `SERVERCHAN3_SENDKEY` | Server酱³ 时必填 | 空 | 私有 SendKey；仅显式选择 `serverchan3` 时使用 |
 | `AGENT_NOTIFY_LANGUAGE` | 否 | `en` | 通知文案语言，`en` 或 `zh` |
 | `AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS` | 否 | `120` | Claude Code 完成通知阈值，`0` 关闭 |
 | `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` | 否 | `120` | Codex 完成通知阈值，`0` 关闭 |
@@ -826,6 +841,8 @@ export NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 # export NTFY_TOKEN=your-ntfy-token
 docker compose -f deploy/docker/docker-compose.yml up --build
 ```
+
+使用 Server酱³ 时，先在私有 `.env` 中设置 `AGENT_NOTIFY_PROVIDER=serverchan3` 和 `SERVERCHAN3_SENDKEY`，再使用现有包装脚本。其他 provider 的凭据保持未激活。`./herald doctor` 只检查配置和本地 API 可达性，不发送推送；设备收件需要另行明确授权测试。
 
 容器带 healthcheck（每 30 秒探一次 `/health`），`docker compose ps` 能看到健康状态。
 
@@ -905,6 +922,11 @@ NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 
 注意 `NTFY_ENDPOINT` 要带完整 topic 路径，topic 名是最后一段。
 
+### `doctor` 拒绝 `SERVERCHAN3_SENDKEY`
+
+选择 `AGENT_NOTIFY_PROVIDER=serverchan3` 时，直接在私有 `.env` 中填写 Server酱³ SendKey。检查其官方格式，但不要打印密钥；Turbo 密钥不能混用。`doctor` 只检查配置，不验证服务是否接受密钥或设备是否收件。
+
+
 ### `server health unavailable`
 
 说明 AgentNotify 服务没有启动，或者端口不对。
@@ -935,8 +957,8 @@ AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
 
 `agent-notify test` 会发一条测试事件并打印 `Test event sent through /events`，说明事件已进入服务端，问题在 provider 推送环节。按顺序检查：
 
-1. `.env` 里 provider 对应的 endpoint 是否正确（`bark` 看 `BARK_ENDPOINT`，`ntfy` 看 `NTFY_ENDPOINT`）。
-2. Bark app / ntfy 客户端是否订阅了对应设备或 topic，能否收到该 App 自己发的普通测试推送。
+1. `.env` 里所选 provider 的凭据是否正确（`bark` 看 `BARK_ENDPOINT`，`ntfy` 看 `NTFY_ENDPOINT`，`serverchan3` 看 `SERVERCHAN3_SENDKEY`）。
+2. 所选 provider 的客户端是否配置了对应设备或 topic，以及明确授权的设备测试是否成功。
 3. AgentNotify 服务终端有没有报错。
 4. `data/events.jsonl` 里有没有 `provider_failed` 记录，看失败原因（如 HTTP 4xx/5xx、网络超时）。
 5. ntfy 额外检查：topic 需要认证时是否配了 `NTFY_TOKEN`，token 是否正确；公开 `ntfy.sh` 的 topic 名是否拼写一致。
@@ -997,7 +1019,7 @@ tail -f ~/.config/agent-notify/claude-code-debug.jsonl
 - 没有新日志：Claude Code hook 没有执行，或 adapter config 读不到。
 - `forwarded:false`：当前 hook 不是 AgentNotify 支持的事件。
 - `forwarded:true` 但 `sent:false`：请求没有成功送到 AgentNotify，检查服务是否启动、token 是否正确、服务端终端是否报错。
-- `sent:true` 但手机没收到：检查 `data/events.jsonl` 是否有 `provider_failed`，以及 provider endpoint 是否正确（Bark 看 `BARK_ENDPOINT`，ntfy 看 `NTFY_ENDPOINT`）。
+- `sent:true` 但手机没收到：检查 `data/events.jsonl` 是否有 `provider_failed`，以及 provider endpoint 是否正确（Bark 看 `BARK_ENDPOINT`，ntfy 看 `NTFY_ENDPOINT`，Server酱³ 看 `SERVERCHAN3_SENDKEY`）。
 
 ### Codex 里没有触发通知
 
@@ -1046,6 +1068,6 @@ OpenCode 插件配置应该是：
 ## 安全提醒
 
 - 不要提交 `.env`，里面含 token 和 endpoint。
-- 不要把 Bark endpoint / ntfy topic URL / `NTFY_TOKEN` 发给别人。Bark endpoint 等于推送权限，公开 ntfy topic 等于任何人都能往你设备发通知。
+- 不要把 Server酱³ SendKey、Bark endpoint / ntfy topic URL / `NTFY_TOKEN` 发给别人。Bark endpoint 等于推送权限，公开 ntfy topic 等于任何人都能往你设备发通知。
 - 不要随便分享 `data/events.jsonl` 和各 adapter 的 `debugLogPath` 日志，里面可能含原始会话信息。
 - `AGENT_NOTIFY_LOG_RAW=true` 可能记录 OpenCode / Claude Code / Codex 原始事件，排查完问题后建议关掉。

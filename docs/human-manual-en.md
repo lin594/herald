@@ -1,6 +1,6 @@
 # AgentNotify User Manual
 
-This manual is for anyone who wants phone or desktop notifications from OpenCode, Claude Code, or Codex. Follow the setup once, and your AI coding agent's key events get forwarded to AgentNotify, which pushes them to your device via Bark or ntfy.
+This manual is for anyone who wants phone or desktop notifications from OpenCode, Claude Code, or Codex. Follow the setup once, and your AI coding agent's key events get forwarded to AgentNotify, which pushes them to your device via Bark, ntfy or optional ServerChan³.
 
 ## What this project does
 
@@ -9,7 +9,7 @@ AgentNotify is a local notification relay:
 1. OpenCode, Claude Code, or Codex hits an event that needs your attention — a permission request, a question to choose, a long task finishing, or a session error.
 2. A local adapter forwards the event to the AgentNotify service on your machine.
 3. AgentNotify formats it into a short notification.
-4. AgentNotify calls the configured provider (Bark or ntfy) to push the notification to your phone or desktop.
+4. AgentNotify calls the configured provider (Bark, ntfy or ServerChan³) to push the notification to your phone or desktop.
 
 The current version mainly supports these OpenCode events:
 
@@ -79,9 +79,9 @@ The cooldown is scoped per `token + agent + session`, so parallel sessions and d
 
 Notification titles are automatically prefixed with the project name when AgentNotify can identify a working directory, for example `agent-notify Approve permission`. Claude Code and Codex use the `cwd` field from the hook payload. The OpenCode plugin adds the current project directory as `raw.cwd` before forwarding the event so the server can generate the same prefix. If no usable directory is available, the title stays unchanged. The project-name prefix in notification titles is pinned to the first cwd observed for a session; cwd changes mid-session (e.g. Claude Code entering a subdirectory while running a subtask) do not change the prefix.
 
-## Notification providers: Bark and ntfy
+## Notification providers: Bark, ntfy and ServerChan³
 
-After formatting an event, AgentNotify pushes it through a provider to your device. Two providers are supported, selected via `AGENT_NOTIFY_PROVIDER` in `.env`; the default is `bark`.
+After formatting an event, AgentNotify pushes it through a provider to your device. Select one provider via `AGENT_NOTIFY_PROVIDER` in `.env`. The default remains `bark`; `ntfy` and `serverchan3` require explicit selection.
 
 ### Bark
 
@@ -91,7 +91,7 @@ After formatting an event, AgentNotify pushes it through a provider to your devi
 - You can also self-host Bark and use your own endpoint.
 - AgentNotify marks `time_sensitive` notifications with Bark's `timeSensitive` level so they bypass Focus mode, and includes group, icon, and sound fields.
 
-Bark only reaches Apple devices. If you use Android, Windows, Linux, or want desktop notifications, choose ntfy below.
+Bark only reaches Apple devices. Android users can opt into ServerChan³ below; ntfy also supports Android, desktop and browser clients.
 
 ### ntfy
 
@@ -102,12 +102,22 @@ Bark only reaches Apple devices. If you use Android, Windows, Linux, or want des
 - If the topic requires auth, set `NTFY_TOKEN` (a Bearer token); leave it empty for public topics.
 - AgentNotify sends `time_sensitive` notifications at ntfy's highest priority (`priority=4`).
 
-### Platform support at a glance
+### ServerChan³ (optional Android channel)
+
+[ServerChan³](https://doc.sc3.ft07.com/en/serverchan3/server/api) is an opt-in channel for evaluating Android delivery, including vivo devices. Configure its client before opting in. Actual arrival rate, background behavior and notification permissions need testing on your device; this integration does not promise delivery or bypass OS restrictions.
+
+- Set `AGENT_NOTIFY_PROVIDER=serverchan3` and supply `SERVERCHAN3_SENDKEY` privately in `.env`. The key defaults to empty and is required only for this provider. A key alone does not enable the channel.
+- Use a ServerChan³ SendKey with the documented `sctp{uid}t...` shape. Older ServerChan Turbo keys are not supported. The UID is derived from the key; no endpoint override is needed.
+- Herald sends JSON POST with `title`, Markdown `desp` (the body, falling back to the title when empty) and optional `tags` from the notification group. Pipes in a group separate tags. Bark-specific level, sound, icon and click fields are not mapped.
+- Each request has a five-second deadline covering headers and the JSON body. HTTP errors, non-JSON/malformed responses and nonzero business codes fail safely. Only numeric `code=0` means API acceptance, following the [official SDK contract](https://github.com/easychen/serverchan-sdk); it does not prove device receipt.
+- There are no automatic retries or fallback pushes through another provider, since a timed-out request may already have been accepted. Errors and doctor output omit the SendKey, request URL and raw response. Keep the SendKey out of logs, screenshots, issues and shared documents.
+
+### Bark/ntfy platform support at a glance
 
 | Platform / Device | Bark | ntfy |
 | --- | --- | --- |
 | iPhone / Apple Watch | ✅ recommended | ✅ |
-| Android | ❌ | ✅ recommended |
+| Android | ❌ | ✅ |
 | macOS desktop | ❌ | ✅ |
 | Windows desktop | ❌ | ✅ |
 | Linux desktop | ❌ | ✅ |
@@ -116,9 +126,10 @@ Bark only reaches Apple devices. If you use Android, Windows, Linux, or want des
 Choosing a provider:
 
 - Apple devices only → Bark, simplest to configure.
+- Evaluating Android/vivo delivery → opt into ServerChan³, then validate on the actual device.
 - Cross-platform, multi-device, or a team sharing the same notifications → ntfy; everyone subscribes to the same topic.
 
-Both providers are configured via `.env`, see Step 2. Only one `AGENT_NOTIFY_PROVIDER` can be active at a time.
+All providers are configured via `.env`, see Step 2. Only one `AGENT_NOTIFY_PROVIDER` can be active at a time.
 
 ## What you need
 
@@ -128,6 +139,7 @@ Both providers are configured via `.env`, see Step 2. Only one `AGENT_NOTIFY_PRO
 - One notification provider:
   - Bark: install Bark on iPhone and get the endpoint (e.g. `https://api.day.app/your-device-key`)
   - ntfy: subscribe to a private topic in a phone or desktop ntfy client and get the topic URL
+  - ServerChan³: configure its Android client and obtain a SendKey; keep it private
 
 ## Step 1: Install dependencies
 
@@ -160,16 +172,18 @@ AGENT_NOTIFY_COOLDOWN_SECONDS=60
 BARK_ENDPOINT=https://api.day.app/example-device-key
 NTFY_ENDPOINT=
 NTFY_TOKEN=
+SERVERCHAN3_SENDKEY=
 AGENT_NOTIFY_LOG_PATH=./data/events.jsonl
 AGENT_NOTIFY_LOG_RAW=false
 ```
 
 What you need to change:
 
-- `AGENT_NOTIFY_PROVIDER`: the notification provider, default `bark`; can also be `ntfy`.
+- `AGENT_NOTIFY_PROVIDER`: the notification provider, default `bark`; can also be `ntfy` or `serverchan3`.
 - `BARK_ENDPOINT`: your Bark endpoint when using Bark.
 - `NTFY_ENDPOINT`: the full topic URL when using ntfy, e.g. `https://ntfy.sh/agent_notify_long_random_text`
 - `NTFY_TOKEN`: optional Bearer token for a protected ntfy topic; leave empty for public topics.
+- `SERVERCHAN3_SENDKEY`: required only when selecting `serverchan3`, otherwise leave empty. Enter it directly in the private `.env` file, never in conversation or shared command output.
 - `AGENT_NOTIFY_LANGUAGE`: notification text language, `en` or `zh`, default `en`.
 - `AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS`: Claude Code completion threshold in seconds, default `120`. After a task runs longer than this, a completion notification is pushed when it ends; set `0` to disable Claude Code completion notifications.
 - `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS`: Codex completion threshold in seconds, default `120`. Same behavior as above; set `0` to disable Codex completion notifications.
@@ -214,7 +228,7 @@ pnpm agent-notify doctor
 
 When healthy you will see several `OK` lines, including:
 
-- The current provider's (`bark` or `ntfy`) endpoint is configured
+- The selected provider's credentials are configured (`BARK_ENDPOINT`, `NTFY_ENDPOINT` or `SERVERCHAN3_SENDKEY`)
 - The log directory is writable
 - `/health` is reachable
 
@@ -279,11 +293,11 @@ cp examples/opencode/agent-notify.ts ~/.config/opencode/plugins/agent-notify.ts
 
 ### 1. Confirm the server config
 
-Make sure `.env` has the server token and the Bark / ntfy endpoint:
+Make sure `.env` has the server token and the selected provider credentials:
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark or ntfy
+AGENT_NOTIFY_PROVIDER=bark # or ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/your-device-key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 ```
@@ -358,11 +372,11 @@ Restart the server and have OpenCode run a task longer than 5 seconds. You shoul
 
 ### 1. Confirm the server config
 
-Make sure `.env` has the server token and the Bark / ntfy endpoint:
+Make sure `.env` has the server token and the selected provider credentials:
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark or ntfy
+AGENT_NOTIFY_PROVIDER=bark # or ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/your-device-key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS=120
@@ -525,11 +539,11 @@ Codex uses command hooks to call the plugin, same as Claude.
 
 ### 1. Confirm the server config
 
-Make sure `.env` has the server token and the Bark / ntfy endpoint:
+Make sure `.env` has the server token and the selected provider credentials:
 
 ```bash
 AGENT_NOTIFY_TOKENS=macbook:my-long-random-token
-AGENT_NOTIFY_PROVIDER=bark or ntfy
+AGENT_NOTIFY_PROVIDER=bark # or ntfy / serverchan3
 BARK_ENDPOINT=https://api.day.app/your-device-key
 NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS=120
@@ -802,10 +816,11 @@ docker compose -f deploy/docker/docker-compose.yml up --build
 | Env var | Required | Default | Description |
 | --- | --- | --- | --- |
 | `AGENT_NOTIFY_TOKENS` | ✅ | — | Server token, format `name:token`, comma-separated for multiple |
-| `AGENT_NOTIFY_PROVIDER` | no | `bark` | provider, `bark` or `ntfy` |
+| `AGENT_NOTIFY_PROVIDER` | no | `bark` | provider, `bark`, `ntfy` or `serverchan3` |
 | `BARK_ENDPOINT` | required for Bark | — | Bark endpoint, required when `bark` |
 | `NTFY_ENDPOINT` | required for ntfy | empty | ntfy topic URL, required when `ntfy` |
 | `NTFY_TOKEN` | no | empty | Bearer token for a protected ntfy topic |
+| `SERVERCHAN3_SENDKEY` | required for ServerChan³ | empty | Private SendKey; only used when `serverchan3` is explicitly selected |
 | `AGENT_NOTIFY_LANGUAGE` | no | `en` | notification text language, `en` or `zh` |
 | `AGENT_NOTIFY_CLAUDE_COMPLETION_MIN_SECONDS` | no | `120` | Claude Code completion threshold, `0` disables |
 | `AGENT_NOTIFY_CODEX_COMPLETION_MIN_SECONDS` | no | `120` | Codex completion threshold, `0` disables |
@@ -829,6 +844,8 @@ export NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 # export NTFY_TOKEN=your-ntfy-token
 docker compose -f deploy/docker/docker-compose.yml up --build
 ```
+
+With ServerChan³, set `AGENT_NOTIFY_PROVIDER=serverchan3` and `SERVERCHAN3_SENDKEY` in the private `.env` file before using the existing wrapper. Leave other provider credentials inactive. `./herald doctor` checks configuration and local API reachability without sending a push. Device delivery needs a separate, explicitly authorized test.
 
 The container has a healthcheck (probes `/health` every 30 seconds); `docker compose ps` shows the health status.
 
@@ -908,6 +925,11 @@ NTFY_ENDPOINT=https://ntfy.sh/agent_notify_long_random_text
 
 Note that `NTFY_ENDPOINT` must include the full topic path; the topic name is the last segment.
 
+### `doctor` rejects `SERVERCHAN3_SENDKEY`
+
+With `AGENT_NOTIFY_PROVIDER=serverchan3`, enter a ServerChan³ SendKey directly in the private `.env`. Check its documented key shape without printing it. A Turbo key is not interchangeable. `doctor` checks configuration, not whether the service accepts the key or the device receives a push.
+
+
 ### `server health unavailable`
 
 The AgentNotify service isn't running, or the port is wrong.
@@ -938,8 +960,8 @@ The format is `name:token`; the colon is required.
 
 `agent-notify test` sends a test event and prints `Test event sent through /events`, meaning the event reached the server; the problem is in the provider push step. Check in order:
 
-1. Whether the provider's endpoint in `.env` is correct (`bark` → `BARK_ENDPOINT`, `ntfy` → `NTFY_ENDPOINT`).
-2. Whether the Bark app / ntfy client subscribed to the right device or topic, and can receive the app's own plain test push.
+1. Whether the selected provider credentials in `.env` are correct (`bark` → `BARK_ENDPOINT`, `ntfy` → `NTFY_ENDPOINT`, `serverchan3` → `SERVERCHAN3_SENDKEY`).
+2. Whether the selected provider app is configured for the right device or topic, and whether an explicitly authorized device test succeeds.
 3. Whether the AgentNotify service terminal printed errors.
 4. Whether `data/events.jsonl` has a `provider_failed` record, and the failure reason (e.g. HTTP 4xx/5xx, network timeout).
 5. ntfy extra checks: if the topic needs auth, is `NTFY_TOKEN` set and correct; is the public `ntfy.sh` topic name spelled consistently.
@@ -1000,7 +1022,7 @@ Common cases:
 - No new logs: the Claude Code hook didn't execute, or the adapter config can't be read.
 - `forwarded:false`: the current hook isn't an event AgentNotify supports.
 - `forwarded:true` but `sent:false`: the request didn't reach AgentNotify — check the service is running, the token is correct, and the server terminal for errors.
-- `sent:true` but no phone notification: check `data/events.jsonl` for `provider_failed`, and whether the provider endpoint is correct (Bark → `BARK_ENDPOINT`, ntfy → `NTFY_ENDPOINT`).
+- `sent:true` but no phone notification: check `data/events.jsonl` for `provider_failed`, and whether the provider endpoint is correct (Bark → `BARK_ENDPOINT`, ntfy → `NTFY_ENDPOINT`, ServerChan³ → `SERVERCHAN3_SENDKEY`).
 
 ### No notification triggered in Codex
 
@@ -1049,6 +1071,6 @@ Don't include `macbook:`.
 ## Security notes
 
 - Don't commit `.env` — it contains tokens and endpoints.
-- Don't share your Bark endpoint / ntfy topic URL / `NTFY_TOKEN` with anyone. The Bark endpoint equals push permission; a public ntfy topic means anyone can push to your device.
+- Don't share your ServerChan³ SendKey, Bark endpoint / ntfy topic URL / `NTFY_TOKEN` with anyone. The Bark endpoint equals push permission; a public ntfy topic means anyone can push to your device.
 - Don't casually share `data/events.jsonl` or any adapter's `debugLogPath` logs — they may contain raw session info.
 - `AGENT_NOTIFY_LOG_RAW=true` may log raw OpenCode / Claude Code / Codex events; turn it off after debugging.

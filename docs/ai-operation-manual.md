@@ -52,7 +52,7 @@ From the device answer, use the table below to recommend a Provider and confirm 
 | User device | Recommended Provider | Reason |
 | --- | --- | --- |
 | iPhone / Apple Watch | Bark | native to Apple devices, simplest config |
-| Android | ntfy | Bark does not support Android |
+| Android | ServerChan³ (explicit opt-in) or ntfy | confirm the selected client with the user |
 | Windows / macOS / Linux desktop | ntfy | Bark does not support desktop |
 | Web browser | ntfy | Bark does not support web |
 | Cross-platform / multi-device / team | ntfy | all devices subscribe to the same topic |
@@ -76,9 +76,11 @@ Once the Provider is chosen, the user must install its client app on the receivi
 - The topic id is concatenated into the topic URL, which becomes the `NTFY_ENDPOINT` pasted into `.env`: `https://ntfy.sh/<topic-id>`. If the user self-hosts ntfy, substitute their own host for `ntfy.sh`.
 - If the topic requires auth, the user also needs a Bearer token (`NTFY_TOKEN`); for a public topic, leave it empty.
 
-Confirm "app installed and endpoint ready?" before moving on. Do not ask what the endpoint is — only yes/no.
+**ServerChan³** (Android, opt-in): install and configure its client, then obtain the SendKey from the service. The user enters it directly in the private `.env`; never ask them to paste it into conversation.
 
-> For Provider background and the Bark/ntfy differences, see the human manual `docs/human-manual-en.md`, sections "Notification providers: Bark and ntfy" and "Platform support at a glance". Point the user there if they have questions; do not re-explain it in the conversation.
+Confirm "app installed and credentials ready?" before moving on. Do not ask what the endpoint is — only yes/no.
+
+> For Provider background and the differences between channels, see the human manual `docs/human-manual-en.md`, sections "Notification providers: Bark, ntfy and ServerChan³" and "Bark/ntfy platform support at a glance". Point the user there if they have questions; do not re-explain it in the conversation.
 
 ---
 
@@ -117,12 +119,20 @@ NTFY_ENDPOINT=<your ntfy topic URL, e.g. https://ntfy.sh/your-random-topic>
 NTFY_TOKEN=<Bearer token if the topic requires auth; leave empty for a public topic>
 ```
 
+When Provider is **ServerChan³** (only if explicitly selected):
+
+```bash
+AGENT_NOTIFY_TOKENS=macbook:<your-random-token>
+AGENT_NOTIFY_PROVIDER=serverchan3
+SERVERCHAN3_SENDKEY=<enter your SendKey directly in this private file>
+```
+
 Explain to the user:
 
 - `AGENT_NOTIFY_TOKENS` has the format `name:token` — the colon is required. The `macbook:` part is a name label (keep it or change to anything); the part **after the colon** is the real token. Remember it — Step 2's agent config `token` must be this exact same string.
 - Use a hard-to-guess random string for the token.
 - **`AGENT_NOTIFY_LANGUAGE` — judge this yourself from the conversation, do not ask.** It defaults to `en` (English). If the user is talking to you in Chinese (or asks for Chinese notifications), have them set it to `zh`; otherwise leave it `en`. You decide based on the language the user is using, then tell them the one value to set — no surveying.
-- Every other line (`AGENT_NOTIFY_HOST`, `AGENT_NOTIFY_PORT`, `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, `AGENT_NOTIFY_COOLDOWN_SECONDS`, `AGENT_NOTIFY_LOG_PATH`, `AGENT_NOTIFY_LOG_RAW`, and the inactive Provider's endpoint) **stays at default — do not touch**.
+- Every other line (`SERVERCHAN3_SENDKEY` when inactive, `AGENT_NOTIFY_HOST`, `AGENT_NOTIFY_PORT`, `AGENT_NOTIFY_*_COMPLETION_MIN_SECONDS`, `AGENT_NOTIFY_COOLDOWN_SECONDS`, `AGENT_NOTIFY_LOG_PATH`, `AGENT_NOTIFY_LOG_RAW`, and the inactive Provider's endpoint) **stays at default — do not touch**.
 
 > Do not ask the user what the token/endpoint is, and do not write these values into the conversation or any file. Only confirm "done yet?".
 
@@ -150,11 +160,13 @@ Take this branch only if the user explicitly asks for Docker. Have the user set 
 
 ```bash
 export AGENT_NOTIFY_TOKENS=macbook:<your-token>
-export AGENT_NOTIFY_PROVIDER=<bark or ntfy>
+export AGENT_NOTIFY_PROVIDER=<bark, ntfy or serverchan3>
 # for bark also:
 export BARK_ENDPOINT=<your Bark endpoint>
 # for ntfy also:
 export NTFY_ENDPOINT=<your ntfy topic URL>
+# for ServerChan³, enter SERVERCHAN3_SENDKEY in the private .env file;
+# do not print it or paste it into conversation.
 docker compose -f deploy/docker/docker-compose.yml up --build
 ```
 
@@ -474,7 +486,7 @@ It sends one test event using the first token in `.env`. Receiving it means the 
 ## Security notes (convey to the user)
 
 - Do not commit `.env` — it contains tokens and endpoints.
-- Do not share the Bark endpoint / ntfy topic URL / `NTFY_TOKEN` with anyone. A Bark endpoint equals push permission; a public ntfy topic means anyone can push to your device.
+- Do not share the ServerChan³ SendKey, Bark endpoint / ntfy topic URL / `NTFY_TOKEN` with anyone. A Bark endpoint equals push permission; a public ntfy topic means anyone can push to your device.
 - Do not casually share `data/events.jsonl` or any adapter's `debugLogPath` logs — they may contain raw session data.
 - `AGENT_NOTIFY_LOG_RAW=true` logs raw events; turn it back off after debugging.
 
