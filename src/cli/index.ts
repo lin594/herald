@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { access, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
 import { dirname } from "node:path";
 import { hostname } from "node:os";
 import { loadDotenv, parseConfig } from "../config/env.js";
@@ -8,6 +9,67 @@ import { passesSeverityGate, resolveSeverity, SEVERITY_DELIVERY } from "../monit
 import type { AppConfig, NamedToken } from "../config/env.js";
 
 const EMIT_TYPES = ["started", "milestone", "waiting", "blocked", "failed", "completed"];
+const DOCTOR_REQUEST_TIMEOUT_MS = 5_000;
+
+type DoctorProbeResult =
+  | { ok: true; body: unknown }
+  | { ok: false; error: string };
+
+async function doctorProbe(config: AppConfig, path: string): Promise<DoctorProbeResult> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<DoctorProbeResult>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve({ ok: false, error: "request timed out after 5s" });
+    }, DOCTOR_REQUEST_TIMEOUT_MS);
+  });
+  const request = (async (): Promise<DoctorProbeResult> => {
+    let response: Response;
+    try {
+      response = await fetch(`${serverBase(config)}${path}`, { signal: controller.signal });
+    } catch {
+      return { ok: false, error: "request failed" };
+    }
+    if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
+    try {
+      return { ok: true, body: await response.json() };
+    } catch {
+      return { ok: false, error: "invalid JSON response" };
+    }
+  })();
+  try {
+    return await Promise.race([request, deadline]);
+  } finally {
+    clearTimeout(timer!);
+    controller.abort();
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+interface DoctorHost {
+  status: "HOST_AVAILABLE" | "HOST_UNREACHABLE";
+  lastHeartbeatMs: number | null;
+}
+
+function statusHosts(value: unknown): DoctorHost[] | null {
+  if (!isRecord(value) || value.ok !== true || !Array.isArray(value.hosts)) return null;
+  const hosts: DoctorHost[] = [];
+  for (const host of value.hosts) {
+    if (
+      !isRecord(host) ||
+      (host.status !== "HOST_AVAILABLE" && host.status !== "HOST_UNREACHABLE") ||
+      (host.lastHeartbeatMs !== null &&
+        (typeof host.lastHeartbeatMs !== "number" ||
+          !Number.isFinite(host.lastHeartbeatMs) || host.lastHeartbeatMs < 0))
+    ) return null;
+    hosts.push({ status: host.status, lastHeartbeatMs: host.lastHeartbeatMs });
+  }
+  return hosts;
+}
 
 function serverBase(config: AppConfig): string {
   const host = config.host === "0.0.0.0" ? "127.0.0.1" : config.host;
@@ -116,7 +178,7 @@ async function getJson(path: string, withAuth: boolean): Promise<void> {
   console.log(JSON.stringify(await response.json(), null, 2));
 }
 
-async function doctor(): Promise<void> {
+export async function doctor(): Promise<void> {
   loadDotenv();
   const validation = validateDoctorConfig(process.env);
   for (const message of validation.messages) {
@@ -134,13 +196,13 @@ async function doctor(): Promise<void> {
     `OK provider=${config.provider} endpoint=${maskSecret(endpoint)}`,
   );
   await mkdir(dirname(config.logPath), { recursive: true });
-  await access(dirname(config.logPath));
+  await access(dirname(config.logPath), constants.W_OK);
   console.log(`OK log directory writable: ${dirname(config.logPath)}`);
 
   const healthUrl = `${serverBase(config)}/health`;
-  const health = await fetch(healthUrl).catch(() => null);
-  if (!health?.ok) {
-    console.log(`FAIL server health unavailable: ${healthUrl}`);
+  const health = await doctorProbe(config, "/health");
+  if (!health.ok || !isRecord(health.body) || health.body.ok !== true) {
+    console.log(`FAIL server health unavailable: ${healthUrl} (${health.ok ? "invalid response" : health.error})`);
     process.exitCode = 1;
     return;
   }
@@ -157,13 +219,37 @@ async function doctor(): Promise<void> {
       const readable = await access(monitor.transcriptDir).then(() => true, () => false);
       if (!readable) console.log(`WARN transcript directory unavailable: ${monitor.transcriptDir}`);
     }
-  }
 
-  const statusRes = await fetch(`${serverBase(config)}/status`).catch(() => null);
-  if (statusRes?.ok) {
-    const status = (await statusRes.json()) as { hosts?: unknown[] };
-    if (Array.isArray(status.hosts) && status.hosts.length === 0) {
+    const status = await doctorProbe(config, "/status");
+    if (!status.ok) {
+      console.log(`FAIL monitor status unavailable: ${status.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    const hosts = statusHosts(status.body);
+    if (hosts === null) {
+      console.log("FAIL monitor status invalid response: expected host states and heartbeat timestamps");
+      process.exitCode = 1;
+      return;
+    }
+    if (hosts.length === 0) {
       console.log("WARN no host bridge heartbeat yet — run ./herald install-host on the Mac");
+    }
+    const nowMs = Date.now();
+    for (const [index, host] of hosts.entries()) {
+      const ageMs = host.lastHeartbeatMs === null ? null : Math.max(0, nowMs - host.lastHeartbeatMs);
+      const heartbeat = ageMs === null
+        ? "no heartbeat received"
+        : `heartbeat age=${Math.floor(ageMs / 1000)}s (timeout=${monitor.hostHeartbeatTimeoutSeconds}s)`;
+      if (host.status === "HOST_UNREACHABLE") {
+        console.log(`WARN host bridge #${index + 1}: HOST_UNREACHABLE, ${heartbeat} — check ./herald install-host on the Mac`);
+      } else if (ageMs === null) {
+        console.log(`WARN host bridge #${index + 1}: ${heartbeat} — run ./herald install-host on the Mac`);
+      } else if (ageMs >= monitor.hostHeartbeatTimeoutSeconds * 1000) {
+        console.log(`WARN host bridge #${index + 1}: heartbeat stale, ${heartbeat} — check ./herald install-host on the Mac`);
+      } else {
+        console.log(`OK host bridge #${index + 1}: HOST_AVAILABLE, ${heartbeat}`);
+      }
     }
   }
 }

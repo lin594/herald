@@ -763,6 +763,23 @@ Check config and service health:
 pnpm agent-notify doctor
 ```
 
+For the container stack, use `./herald doctor`. It reports when Docker is
+unavailable or access is denied, or the service is stopped, before trying to
+run the in-container checks. It does not start or repair the stack.
+
+The doctor checks configuration and API reachability. With Herald enabled,
+it also checks the Host Bridge's most recent heartbeat against
+`HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS` (default 180 seconds). Missing,
+expired or unreachable bridges produce a `WARN`; an old database entry does
+not count as a healthy bridge. Each API probe has a five-second deadline,
+including reading its response. Failed or invalid API responses produce a
+`FAIL` and a nonzero exit status. Bridge warnings remain advisory, since the
+base hook pipeline can run without a bridge. With Herald disabled, the
+monitor status check is skipped.
+
+Doctor does not send a notification or verify delivery to your device. Use
+the test command below to exercise the notification pipeline.
+
 Send a test notification:
 
 ```bash

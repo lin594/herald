@@ -765,6 +765,18 @@ pnpm test
 pnpm agent-notify doctor
 ```
 
+容器部署使用 `./herald doctor`。它会先报告 Docker 不可用、访问被拒绝或服务
+未运行的情况，再进入容器内检查；不会自动启动或修复服务。
+
+doctor 检查配置和 API 可达性。启用 Herald 时，还会按照
+`HERALD_HOST_HEARTBEAT_TIMEOUT_SECONDS`（默认 180 秒）检查 Host Bridge
+最近一次心跳。桥接缺失、心跳过期或状态不可达时输出 `WARN`，数据库里留有旧
+记录不代表桥接健康。每个 API 检查有五秒期限，包括读取响应；请求失败或响应
+无效时输出 `FAIL` 并以非零状态退出。桥接警告保持为提示，因为基础 hook 通知
+链路可以在没有桥接时运行。关闭 Herald 时，跳过监控状态检查。
+
+doctor 不发送通知，也不验证设备收件；使用下面的测试命令检查通知链路。
+
 发送测试通知：
 
 ```bash
